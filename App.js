@@ -1,20 +1,22 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import AppNavigator from './src/navigation/AppNavigator';
+import wsService from './src/services/websocket';
+import useAuditStore from './src/store/useAuditStore';
 
-export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+function AppContainer() {
+  const user = useAuditStore((state) => state.user);
+
+  useEffect(() => {
+    if (user?.plant) {
+      wsService.connect(user.plant);
+    }
+    
+    return () => wsService.disconnect();
+  }, [user?.plant]);
+
+  return <AppNavigator />;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return <AppContainer />;
+}
