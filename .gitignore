@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Local configuration
+src/constants/config.local.js
+
 # typescript
 *.tsbuildinfo
 

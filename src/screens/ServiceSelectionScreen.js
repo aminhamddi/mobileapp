@@ -51,7 +51,7 @@ const ServiceSelectionScreen = ({ navigation }) => {
 
             // Créer audit en DB
             const auditData = {
-                plant: user.plant,
+                plant_id: user.plant_id,
                 service_id: selectedService,
                 date_audit: new Date().toISOString().split('T')[0],
                 heure_debut: new Date().toTimeString().split(' ')[0],
