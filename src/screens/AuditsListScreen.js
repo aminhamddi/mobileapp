@@ -99,14 +99,14 @@ export default function AuditsListScreen() {
         >
             <View style={styles.auditHeader}>
                 <View>
-                    <Text style={styles.auditPlant}>{item.plant}</Text>
+                    <Text style={styles.auditPlant}>{item.plant?.nom || item.plant || '—'}</Text>
                     <Text style={styles.auditDate}>
                         {new Date(item.date_audit).toLocaleDateString('fr-FR')}
                     </Text>
                 </View>
 
                 <View style={styles.auditStatus}>
-                    {item.statut === 'finalise' ? (
+                    {item.statut === 'finalized' ? (
                         <View style={styles.scoreContainer}>
                             <Text style={[styles.scoreText, { color: getScoreColor(item.score_global) }]}>
                                 {item.score_global ? `${(item.score_global * 100).toFixed(0)}%` : '-'}
@@ -123,7 +123,7 @@ export default function AuditsListScreen() {
             <View style={styles.auditFooter}>
                 <View style={styles.auditInfo}>
                     <Text style={styles.infoLabel}>ID: {item.id}</Text>
-                    {item.statut === 'finalise' && (
+                    {item.statut === 'finalized' && (
                         <>
                             <Text style={styles.infoDot}>•</Text>
                             <Text style={styles.infoLabel}>
@@ -152,7 +152,7 @@ export default function AuditsListScreen() {
             <Text style={styles.emptySubtext}>
                 {filter === 'draft'
                     ? "Pas d'audits en brouillon"
-                    : filter === 'finalise'
+                    : filter === 'finalized'
                         ? 'Pas d\'audits finalisés'
                         : 'Créez votre premier audit !'}
             </Text>
@@ -197,10 +197,10 @@ export default function AuditsListScreen() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        style={[styles.filterButton, filter === 'finalise' && styles.filterButtonActive]}
-                        onPress={() => setFilter('finalise')}
+                        style={[styles.filterButton, filter === 'finalized' && styles.filterButtonActive]}
+                        onPress={() => setFilter('finalized')}
                     >
-                        <Text style={[styles.filterText, filter === 'finalise' && styles.filterTextActive]}>
+                        <Text style={[styles.filterText, filter === 'finalized' && styles.filterTextActive]}>
                             Finalisés
                         </Text>
                     </TouchableOpacity>

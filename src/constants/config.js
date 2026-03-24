@@ -15,7 +15,7 @@ try {
 } catch (e) {
   // Fallback to default values if local config doesn't exist
   API_URL = __DEV__
-    ? 'http://192.168.1.164:8000'  // Your computer's IPv4
+    ? 'http://172.20.10.2:8001'  // Your computer's IPv4
     : 'https://api-production.tn'; // Default production
 }
 

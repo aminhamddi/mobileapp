@@ -83,7 +83,7 @@ export default function AuditDetailScreen() {
 
                     <View style={styles.infoRow}>
                         <Text style={styles.infoLabel}>Plant :</Text>
-                        <Text style={styles.infoValue}>{audit.plant}</Text>
+                        <Text style={styles.infoValue}>{audit.plant?.nom || audit.plant || '—'}</Text>
                     </View>
 
                     <View style={styles.infoRow}>
@@ -97,18 +97,18 @@ export default function AuditDetailScreen() {
                         <Text style={styles.infoLabel}>Statut :</Text>
                         <View style={[
                             styles.statusBadge,
-                            { backgroundColor: audit.statut === 'finalise' ? '#E8F5E9' : '#FFF3E0' }
+                            { backgroundColor: audit.statut === 'finalized' ? '#E8F5E9' : '#FFF3E0' }
                         ]}>
                             <Text style={[
                                 styles.statusText,
-                                { color: audit.statut === 'finalise' ? '#4CAF50' : '#FF9800' }
+                                { color: audit.statut === 'finalized' ? '#4CAF50' : '#FF9800' }
                             ]}>
-                                {audit.statut === 'finalise' ? 'Finalisé' : 'Brouillon'}
+                                {audit.statut === 'finalized' ? 'Finalisé' : 'Brouillon'}
                             </Text>
                         </View>
                     </View>
 
-                    {audit.statut === 'finalise' && (
+                    {audit.statut === 'finalized' && (
                         <>
                             <View style={styles.infoRow}>
                                 <Text style={styles.infoLabel}>Score Global :</Text>

@@ -161,4 +161,9 @@ export const getServices = async () => {
     return response.data;
 };
 
+export const getServicesWithQuestions = async () => {
+    const response = await api.get('/api/services/with-questions');
+    return response.data;
+};
+
 export default api;

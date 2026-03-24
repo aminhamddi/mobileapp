@@ -12,6 +12,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import useAuditStore from '../store/useAuditStore';
@@ -19,8 +20,9 @@ import NoteSelector from '../components/NoteSelector';
 import NAButton from '../components/NAButton';
 import PhotoCapture from '../components/PhotoCapture';
 import { saveDraftReponses } from '../utils/storage';
+import { getServicesWithQuestions } from '../services/api';
 
-const QuestionScreen = ({ navigation }) => {
+const QuestionScreen = ({ navigation, route }) => {
   const currentQuestion = useAuditStore((state) => state.getCurrentQuestion());
   const currentQuestionIndex = useAuditStore((state) => state.currentQuestionIndex);
   const questions = useAuditStore((state) => state.questions);
@@ -30,7 +32,10 @@ const QuestionScreen = ({ navigation }) => {
   const setReponse = useAuditStore((state) => state.setReponse);
   const nextQuestion = useAuditStore((state) => state.nextQuestion);
   const previousQuestion = useAuditStore((state) => state.previousQuestion);
-  
+  const goToQuestion = useAuditStore((state) => state.goToQuestion);
+
+  const [servicesData, setServicesData] = useState([]);
+
   // États locaux
   const [note, setNote] = useState(null);
   const [isNA, setIsNA] = useState(false);
@@ -38,7 +43,29 @@ const QuestionScreen = ({ navigation }) => {
   const [commentaire, setCommentaire] = useState('');
   const [photos, setPhotos] = useState([]);
   const [lastSaveTime, setLastSaveTime] = useState(null);
-  
+
+  // Charger services pour la barre de navigation
+  useEffect(() => {
+    loadServices();
+  }, []);
+
+  const loadServices = async () => {
+    try {
+      const data = await getServicesWithQuestions();
+      setServicesData(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Erreur chargement services:', error);
+    }
+  };
+
+  // Aller à la question de départ si spécifiée
+  useEffect(() => {
+    const params = route?.params;
+    if (params?.startQuestionIndex && params.startQuestionIndex > 0) {
+      goToQuestion(params.startQuestionIndex);
+    }
+  }, [route?.params?.startQuestionIndex]);
+
   // Charger réponse existante
   useEffect(() => {
     if (currentQuestion) {
@@ -143,23 +170,84 @@ const QuestionScreen = ({ navigation }) => {
   };
   
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
-  
+
+  // Service courant de la question active
+  const currentServiceOfQuestion = currentQuestion?.services?.[0] || null;
+
+  // Sauter au premier question d'un service
+  const jumpToService = (serviceId) => {
+    // Sauvegarder réponse actuelle
+    if (note !== null || isNA) {
+      setReponse(currentQuestion.id, {
+        question_id: currentQuestion.id,
+        note: isNA ? null : note,
+        is_na: isNA,
+        raison_na: isNA ? raisonNA : null,
+        commentaire,
+        photos,
+      });
+    }
+
+    const sorted = [...questions].sort((a, b) => a.numero - b.numero);
+    const index = sorted.findIndex(q =>
+      q.services && q.services.some(s => s.id === serviceId)
+    );
+    if (index >= 0) {
+      goToQuestion(index);
+    }
+  };
+
+  const getServiceColor = (serviceId) => {
+    const colors = ['#1976D2', '#E91E63', '#FF9800', '#4CAF50', '#9C27B0', '#00BCD4', '#F44336'];
+    const idx = servicesData.findIndex(s => s.id === serviceId);
+    return colors[idx >= 0 ? idx % colors.length : 0];
+  };
+
+  // Nombre de questions répondues par service
+  const getServiceProgress = (serviceId) => {
+    const serviceQs = questions.filter(q =>
+      q.services && q.services.some(s => s.id === serviceId)
+    );
+    const answered = serviceQs.filter(q => reponses[q.id]).length;
+    return { answered, total: serviceQs.length };
+  };
+
   return (
     <KeyboardAvoidingView 
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
       {/* Barre de progression */}
       <View style={styles.progressContainer}>
+        <View style={styles.progressRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              if (note !== null || isNA) {
+                setReponse(currentQuestion.id, {
+                  question_id: currentQuestion.id,
+                  note: isNA ? null : note,
+                  is_na: isNA,
+                  raison_na: isNA ? raisonNA : null,
+                  commentaire,
+                  photos,
+                });
+              }
+              navigation.navigate('ServiceSelection');
+            }}
+          >
+            <Text style={styles.backButtonText}>‹ Services</Text>
+          </TouchableOpacity>
+          <Text style={styles.progressText}>
+            {currentQuestionIndex + 1} / {questions.length}
+          </Text>
+        </View>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
-        <Text style={styles.progressText}>
-          Question {currentQuestionIndex + 1} / {questions.length}
-        </Text>
-        
+
         {/* Indicateur auto-save */}
         {lastSaveTime && (
           <Text style={styles.saveIndicator}>
@@ -167,6 +255,53 @@ const QuestionScreen = ({ navigation }) => {
           </Text>
         )}
       </View>
+
+      {/* Barre de navigation par service */}
+      {servicesData.length > 0 && (
+        <View style={styles.serviceBarContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.serviceBar}
+          >
+            {servicesData.map((service) => {
+              const isActive = currentServiceOfQuestion &&
+                currentServiceOfQuestion.id === service.id;
+              const color = getServiceColor(service.id);
+              const prog = getServiceProgress(service.id);
+
+              return (
+                <TouchableOpacity
+                  key={service.id}
+                  style={[
+                    styles.serviceChip,
+                    isActive && { backgroundColor: color, borderColor: color },
+                  ]}
+                  onPress={() => jumpToService(service.id)}
+                >
+                  <Text
+                    style={[
+                      styles.serviceChipText,
+                      isActive && { color: '#FFFFFF' },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {service.nom}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.serviceChipCount,
+                      isActive && { color: '#FFFFFF' },
+                    ]}
+                  >
+                    {prog.answered}/{prog.total}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
       
       <ScrollView 
         style={styles.content} 
@@ -248,7 +383,7 @@ const QuestionScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
     </KeyboardAvoidingView>
   );
 };
@@ -271,31 +406,77 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     backgroundColor: COLORS.surface,
-    padding: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: COLORS.primary,
+    fontWeight: '500',
+  },
   progressBar: {
-    height: 8,
+    height: 6,
     backgroundColor: '#E0E0E0',
-    borderRadius: 4,
+    borderRadius: 3,
     overflow: 'hidden',
-    marginBottom: 8,
   },
   progressFill: {
     height: '100%',
     backgroundColor: COLORS.primary,
+    borderRadius: 3,
   },
   progressText: {
-    fontSize: 12,
+    fontSize: 14,
     color: COLORS.textSecondary,
-    textAlign: 'center',
+    fontWeight: '500',
   },
   saveIndicator: {
     fontSize: 10,
     color: COLORS.success,
     textAlign: 'center',
     marginTop: 4,
+  },
+  serviceBarContainer: {
+    backgroundColor: COLORS.surface,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  serviceBar: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  serviceChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    alignItems: 'center',
+    minWidth: 70,
+  },
+  serviceChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  serviceChipCount: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   content: {
     flex: 1,
