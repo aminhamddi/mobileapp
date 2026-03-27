@@ -42,3 +42,7 @@ src/constants/config.local.js
 # generated native folders
 /ios
 /android
+
+AGENTS.md
+skills
+rapport

@@ -10,11 +10,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import api from '../services/api';
+import api, { getActionsByAudit } from '../services/api';
 
 export default function AuditDetailScreen() {
     const [audit, setAudit] = useState(null);
     const [reponses, setReponses] = useState([]);
+    const [actions, setActions] = useState([]);
     const [loading, setLoading] = useState(true);
     const route = useRoute();
     const navigation = useNavigation();
@@ -27,12 +28,14 @@ export default function AuditDetailScreen() {
     const loadAuditDetails = async () => {
         try {
             setLoading(true);
-            const [auditRes, reponsesRes] = await Promise.all([
+            const [auditRes, reponsesRes, actionsRes] = await Promise.all([
                 api.get(`/api/audits/${auditId}`),
                 api.get(`/api/reponses/audit/${auditId}`),
+                getActionsByAudit(auditId).catch(() => []),
             ]);
             setAudit(auditRes.data);
             setReponses(reponsesRes.data);
+            setActions(Array.isArray(actionsRes) ? actionsRes : []);
         } catch (error) {
             console.error('Erreur chargement détails:', error);
             Alert.alert('Erreur', 'Impossible de charger les détails');
@@ -189,6 +192,41 @@ export default function AuditDetailScreen() {
                         </View>
                     </View>
                 )}
+
+                {/* Actions Correctives NLP */}
+                {actions.length > 0 && (
+                    <View style={styles.section}>
+                        <Text style={styles.sectionTitle}>Actions Correctives (NLP)</Text>
+                        {actions.map((action) => (
+                            <View key={action.id} style={styles.actionCard}>
+                                <View style={styles.actionHeader}>
+                                    <Text style={[
+                                        styles.actionType,
+                                        { backgroundColor: action.priorite === 'Critique' ? '#FFEBEE' : action.priorite === 'Haute' ? '#FFF3E0' : '#E8F5E9' }
+                                    ]}>
+                                        {action.type}
+                                    </Text>
+                                    <Text style={styles.actionPriority}>
+                                        {action.priorite}
+                                    </Text>
+                                </View>
+                                <Text style={styles.actionTitle}>{action.titre}</Text>
+                                {action.description && (
+                                    <Text style={styles.actionDesc}>{action.description}</Text>
+                                )}
+                                <View style={styles.actionFooter}>
+                                    <Text style={styles.actionResponsible}>
+                                        Responsable: {action.responsable || '—'}
+                                    </Text>
+                                    <Text style={styles.actionDesignation}>
+                                        {action.designation || '—'}
+                                    </Text>
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
             </ScrollView>
         </SafeAreaView>
     );
@@ -336,5 +374,57 @@ const styles = StyleSheet.create({
     statLabel: {
         fontSize: 12,
         color: '#666',
+    },
+    actionCard: {
+        backgroundColor: '#FAFAFA',
+        borderRadius: 8,
+        padding: 12,
+        marginBottom: 10,
+        borderLeftWidth: 3,
+        borderLeftColor: '#2196F3',
+    },
+    actionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    actionType: {
+        fontSize: 11,
+        fontWeight: '600',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+        overflow: 'hidden',
+        color: '#333',
+    },
+    actionPriority: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#F44336',
+    },
+    actionTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#333',
+        marginBottom: 4,
+    },
+    actionDesc: {
+        fontSize: 12,
+        color: '#666',
+        marginBottom: 6,
+    },
+    actionFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    actionResponsible: {
+        fontSize: 11,
+        color: '#999',
+    },
+    actionDesignation: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#2196F3',
     },
 });

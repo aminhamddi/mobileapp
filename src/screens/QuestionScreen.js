@@ -42,6 +42,8 @@ const QuestionScreen = ({ navigation, route }) => {
   const [raisonNA, setRaisonNA] = useState('');
   const [commentaire, setCommentaire] = useState('');
   const [photos, setPhotos] = useState([]);
+  const [deviation, setDeviation] = useState(false);
+  const [designation, setDesignation] = useState(null);
   const [lastSaveTime, setLastSaveTime] = useState(null);
 
   // Charger services pour la barre de navigation
@@ -76,6 +78,8 @@ const QuestionScreen = ({ navigation, route }) => {
         setRaisonNA(existingReponse.raison_na || '');
         setCommentaire(existingReponse.commentaire || '');
         setPhotos(existingReponse.photos || []);
+        setDeviation(existingReponse.deviation || false);
+        setDesignation(existingReponse.designation || null);
       } else {
         // Reset pour nouvelle question
         setNote(null);
@@ -83,6 +87,8 @@ const QuestionScreen = ({ navigation, route }) => {
         setRaisonNA('');
         setCommentaire('');
         setPhotos([]);
+        setDeviation(false);
+        setDesignation(null);
       }
     }
   }, [currentQuestion, reponses]);
@@ -113,17 +119,54 @@ const QuestionScreen = ({ navigation, route }) => {
   // Trouver gravité
   const gravite = gravites.find((g) => g.id === currentQuestion.gravite_id);
   
+  // Détection automatique de déviation selon gravité
+  const detectDeviation = (selectedNote, gravite) => {
+    if (!gravite || selectedNote === null) return false;
+    const niveau = gravite.niveau;
+    // Gravité 1: deviation si note < 2
+    // Gravité 2: deviation si note < 3
+    // Gravité 3: deviation si note < 4
+    // Gravité 4: deviation si note = 0
+    if (niveau === 1) return selectedNote < 2;
+    if (niveau === 2) return selectedNote < 3;
+    if (niveau === 3) return selectedNote < 4;
+    if (niveau === 4) return selectedNote === 0;
+    return false;
+  };
+
+  // Suggestion de désignation selon la note
+  const suggestDesignation = (selectedNote, gravite) => {
+    if (!gravite || selectedNote === null) return 'AA';
+    const niveau = gravite.niveau;
+    if (selectedNote === 0) return 'DMA';
+    if (niveau === 4 && selectedNote === 0) return 'DMA';
+    if (selectedNote <= 2) return 'DMI';
+    return 'AA';
+  };
+
   // Handlers
   const handleSelectNote = (selectedNote) => {
     setNote(selectedNote);
     setIsNA(false);
     setRaisonNA('');
+
+    // Auto-detect deviation
+    const isDeviation = detectDeviation(selectedNote, gravite);
+    setDeviation(isDeviation);
+
+    if (isDeviation) {
+      setDesignation(suggestDesignation(selectedNote, gravite));
+    } else {
+      setDesignation(null);
+    }
   };
   
   const handleToggleNA = (value) => {
     setIsNA(value);
     if (value) {
       setNote(null);
+      setDeviation(false);
+      setDesignation(null);
     }
   };
   
@@ -142,6 +185,8 @@ const QuestionScreen = ({ navigation, route }) => {
       raison_na: isNA ? raisonNA : null,
       commentaire,
       photos,
+      deviation: isNA ? false : deviation,
+      designation: isNA ? null : designation,
     });
     
     // Aller suivant
@@ -163,6 +208,8 @@ const QuestionScreen = ({ navigation, route }) => {
         raison_na: isNA ? raisonNA : null,
         commentaire,
         photos,
+        deviation: isNA ? false : deviation,
+        designation: isNA ? null : designation,
       });
     }
     
@@ -185,6 +232,8 @@ const QuestionScreen = ({ navigation, route }) => {
         raison_na: isNA ? raisonNA : null,
         commentaire,
         photos,
+        deviation: isNA ? false : deviation,
+        designation: isNA ? null : designation,
       });
     }
 
@@ -215,7 +264,7 @@ const QuestionScreen = ({ navigation, route }) => {
   return (
     <KeyboardAvoidingView 
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
     >
       <SafeAreaView style={styles.container}>
@@ -233,6 +282,8 @@ const QuestionScreen = ({ navigation, route }) => {
                   raison_na: isNA ? raisonNA : null,
                   commentaire,
                   photos,
+                  deviation: isNA ? false : deviation,
+                  designation: isNA ? null : designation,
                 });
               }
               navigation.navigate('ServiceSelection');
@@ -331,7 +382,48 @@ const QuestionScreen = ({ navigation, route }) => {
           onSelectNote={handleSelectNote}
           disabled={isNA}
         />
-        
+
+        {/* Déviation détectée + Sélection Désignation */}
+        {deviation && !isNA && (
+          <View style={styles.deviationContainer}>
+            <Text style={styles.deviationAlert}>
+              ⚠️ Déviation détectée (note insuffisante pour gravité {gravite?.nom})
+            </Text>
+            <Text style={styles.designationLabel}>Désignation :</Text>
+            <View style={styles.designationRow}>
+              {['AA', 'DMI', 'DMA'].map((des) => (
+                <TouchableOpacity
+                  key={des}
+                  style={[
+                    styles.designationButton,
+                    designation === des && styles.designationButtonSelected,
+                    des === 'AA' && { borderColor: '#4CAF50' },
+                    des === 'DMI' && { borderColor: '#FF9800' },
+                    des === 'DMA' && { borderColor: '#F44336' },
+                    designation === des && des === 'AA' && { backgroundColor: '#4CAF50' },
+                    designation === des && des === 'DMI' && { backgroundColor: '#FF9800' },
+                    designation === des && des === 'DMA' && { backgroundColor: '#F44336' },
+                  ]}
+                  onPress={() => setDesignation(des)}
+                >
+                  <Text style={[
+                    styles.designationText,
+                    designation === des && styles.designationTextSelected,
+                  ]}>
+                    {des}
+                  </Text>
+                  <Text style={[
+                    styles.designationDesc,
+                    designation === des && { color: '#FFFFFF' },
+                  ]}>
+                    {des === 'AA' ? 'À améliorer' : des === 'DMI' ? 'Déviation mineure' : 'Déviation majeure'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* Bouton NA */}
         <NAButton
           isNA={isNA}
@@ -532,6 +624,57 @@ const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: '#F5F5F5',
     borderRadius: 6,
+  },
+  deviationContainer: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: '#FFF8E1',
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  deviationAlert: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E65100',
+    marginBottom: 12,
+  },
+  designationLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 10,
+  },
+  designationRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  designationButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    borderWidth: 2,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+  },
+  designationButtonSelected: {
+    borderWidth: 2,
+  },
+  designationText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  designationTextSelected: {
+    color: '#FFFFFF',
+  },
+  designationDesc: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+    textAlign: 'center',
   },
   commentContainer: {
     marginVertical: 15,

@@ -1,4 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+/**
+ * Cross-platform storage: AsyncStorage on native, localStorage on web
+ */
+import { Platform } from 'react-native';
 
 const KEYS = {
   TOKEN: '@oee_audit:token',
@@ -7,11 +10,21 @@ const KEYS = {
   DRAFT_REPONSES: '@oee_audit:draft_reponses',
 };
 
+// Storage backend — web uses localStorage, native uses AsyncStorage
+const store = Platform.OS === 'web'
+  ? {
+      async getItem(key) { return localStorage.getItem(key); },
+      async setItem(key, value) { localStorage.setItem(key, value); },
+      async removeItem(key) { localStorage.removeItem(key); },
+      async clear() { localStorage.clear(); },
+    }
+  : require('@react-native-async-storage/async-storage').default;
+
 // ========== TOKEN ==========
 
 export const saveToken = async (token) => {
   try {
-    await AsyncStorage.setItem(KEYS.TOKEN, token);
+    await store.setItem(KEYS.TOKEN, token);
   } catch (error) {
     console.error('Error saving token:', error);
   }
@@ -19,7 +32,7 @@ export const saveToken = async (token) => {
 
 export const getToken = async () => {
   try {
-    return await AsyncStorage.getItem(KEYS.TOKEN);
+    return await store.getItem(KEYS.TOKEN);
   } catch (error) {
     console.error('Error getting token:', error);
     return null;
@@ -28,7 +41,7 @@ export const getToken = async () => {
 
 export const clearToken = async () => {
   try {
-    await AsyncStorage.removeItem(KEYS.TOKEN);
+    await store.removeItem(KEYS.TOKEN);
   } catch (error) {
     console.error('Error clearing token:', error);
   }
@@ -38,7 +51,7 @@ export const clearToken = async () => {
 
 export const saveUser = async (user) => {
   try {
-    await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
+    await store.setItem(KEYS.USER, JSON.stringify(user));
   } catch (error) {
     console.error('Error saving user:', error);
   }
@@ -46,7 +59,7 @@ export const saveUser = async (user) => {
 
 export const getUser = async () => {
   try {
-    const user = await AsyncStorage.getItem(KEYS.USER);
+    const user = await store.getItem(KEYS.USER);
     return user ? JSON.parse(user) : null;
   } catch (error) {
     console.error('Error getting user:', error);
@@ -56,7 +69,7 @@ export const getUser = async () => {
 
 export const clearUser = async () => {
   try {
-    await AsyncStorage.removeItem(KEYS.USER);
+    await store.removeItem(KEYS.USER);
   } catch (error) {
     console.error('Error clearing user:', error);
   }
@@ -66,7 +79,7 @@ export const clearUser = async () => {
 
 export const saveCurrentAudit = async (audit) => {
   try {
-    await AsyncStorage.setItem(KEYS.CURRENT_AUDIT, JSON.stringify(audit));
+    await store.setItem(KEYS.CURRENT_AUDIT, JSON.stringify(audit));
   } catch (error) {
     console.error('Error saving current audit:', error);
   }
@@ -74,7 +87,7 @@ export const saveCurrentAudit = async (audit) => {
 
 export const getCurrentAudit = async () => {
   try {
-    const audit = await AsyncStorage.getItem(KEYS.CURRENT_AUDIT);
+    const audit = await store.getItem(KEYS.CURRENT_AUDIT);
     return audit ? JSON.parse(audit) : null;
   } catch (error) {
     console.error('Error getting current audit:', error);
@@ -84,7 +97,7 @@ export const getCurrentAudit = async () => {
 
 export const clearCurrentAudit = async () => {
   try {
-    await AsyncStorage.removeItem(KEYS.CURRENT_AUDIT);
+    await store.removeItem(KEYS.CURRENT_AUDIT);
   } catch (error) {
     console.error('Error clearing current audit:', error);
   }
@@ -95,7 +108,7 @@ export const clearCurrentAudit = async () => {
 export const saveDraftReponses = async (auditId, reponses) => {
   try {
     const key = `${KEYS.DRAFT_REPONSES}:${auditId}`;
-    await AsyncStorage.setItem(key, JSON.stringify({
+    await store.setItem(key, JSON.stringify({
       auditId,
       reponses,
       savedAt: new Date().toISOString(),
@@ -109,7 +122,7 @@ export const saveDraftReponses = async (auditId, reponses) => {
 export const getDraftReponses = async (auditId) => {
   try {
     const key = `${KEYS.DRAFT_REPONSES}:${auditId}`;
-    const draft = await AsyncStorage.getItem(key);
+    const draft = await store.getItem(key);
     return draft ? JSON.parse(draft) : null;
   } catch (error) {
     console.error('Error getting draft reponses:', error);
@@ -120,7 +133,7 @@ export const getDraftReponses = async (auditId) => {
 export const clearDraftReponses = async (auditId) => {
   try {
     const key = `${KEYS.DRAFT_REPONSES}:${auditId}`;
-    await AsyncStorage.removeItem(key);
+    await store.removeItem(key);
     console.log('Draft cleared for audit:', auditId);
   } catch (error) {
     console.error('Error clearing draft reponses:', error);
@@ -131,7 +144,7 @@ export const clearDraftReponses = async (auditId) => {
 
 export const clearAll = async () => {
   try {
-    await AsyncStorage.clear();
+    await store.clear();
     console.log('All storage cleared');
   } catch (error) {
     console.error('Error clearing all storage:', error);

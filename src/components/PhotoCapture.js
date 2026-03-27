@@ -1,5 +1,5 @@
 /**
- * Composant capture photo avec expo-camera (updated)
+ * Composant capture photo avec expo-camera — compatible web et native
  */
 import React, { useState, useRef } from 'react';
 import {
@@ -11,6 +11,7 @@ import {
     Alert,
     Modal,
     ActivityIndicator,
+    Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,11 +32,14 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
             return;
         }
 
-        if (!permission?.granted) {
-            const result = await requestPermission();
-            if (!result.granted) {
-                Alert.alert('Permission requise', 'Autorisez la caméra.');
-                return;
+        // On web, camera permission is handled by browser prompt
+        if (Platform.OS !== 'web') {
+            if (!permission?.granted) {
+                const result = await requestPermission();
+                if (!result.granted) {
+                    Alert.alert('Permission requise', 'Autorisez la caméra.');
+                    return;
+                }
             }
         }
 
@@ -52,24 +56,33 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
             });
 
             setShowCamera(false);
-            await uploadPhotoToServer(photo.uri);
+
+            if (Platform.OS === 'web') {
+                // On web, photo.uri is a data URI (base64) — convert to File
+                await uploadDataUriToServer(photo.uri);
+            } else {
+                await uploadPhotoToServer(photo.uri);
+            }
         } catch (error) {
             console.error('Camera error:', error);
             Alert.alert('Erreur', 'Impossible de prendre la photo');
         }
     };
 
-    // Galerie
+    // Galerie — native
     const handlePickFromGallery = async () => {
         if (photos.length >= maxPhotos) {
             Alert.alert('Limite atteinte', `Maximum ${maxPhotos} photos`);
             return;
         }
 
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permission requise');
-            return;
+        // Permission auto-granted on web, need request on native
+        if (Platform.OS !== 'web') {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Permission requise');
+                return;
+            }
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -79,18 +92,28 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
         });
 
         if (!result.canceled && result.assets && result.assets.length > 0) {
-            await uploadPhotoToServer(result.assets[0].uri);
+            if (Platform.OS === 'web') {
+                // On web, the asset may have a file reference in nativeEvent
+                // expo-image-picker on web returns a blob URL or data URI
+                const uri = result.assets[0].uri;
+                if (uri.startsWith('data:')) {
+                    await uploadDataUriToServer(uri);
+                } else {
+                    // blob URL — fetch as File
+                    await uploadBlobUrlToServer(uri);
+                }
+            } else {
+                await uploadPhotoToServer(result.assets[0].uri);
+            }
         }
     };
 
-    // Upload backend
+    // Upload from native URI (file path)
     const uploadPhotoToServer = async (uri) => {
         setUploading(true);
         try {
             const response = await uploadPhoto(uri);
-            // On vérifie si response est l'URL directement ou un objet contenant l'URL
             const photoUrl = typeof response === 'string' ? response : (response.url || response.path);
-            
             if (photoUrl) {
                 onPhotosChange([...photos, photoUrl]);
             } else {
@@ -104,17 +127,58 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
         }
     };
 
+    // Upload from data URI (web camera)
+    const uploadDataUriToServer = async (dataUri) => {
+        setUploading(true);
+        try {
+            const response = await uploadPhoto(dataUri);
+            const photoUrl = typeof response === 'string' ? response : (response.url || response.path);
+            if (photoUrl) {
+                onPhotosChange([...photos, photoUrl]);
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            Alert.alert('Erreur upload');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // Upload from blob URL (web image picker)
+    const uploadBlobUrlToServer = async (blobUrl) => {
+        setUploading(true);
+        try {
+            const response = await uploadPhoto(blobUrl);
+            const photoUrl = typeof response === 'string' ? response : (response.url || response.path);
+            if (photoUrl) {
+                onPhotosChange([...photos, photoUrl]);
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            Alert.alert('Erreur upload');
+        } finally {
+            setUploading(false);
+        }
+    };
+
     const handleDeletePhoto = (index) => {
-        Alert.alert('Supprimer ?', '', [
-            { text: 'Annuler', style: 'cancel' },
-            {
-                text: 'Supprimer',
-                style: 'destructive',
-                onPress: () => {
-                    onPhotosChange(photos.filter((_, i) => i !== index));
+        if (Platform.OS === 'web') {
+            // window.confirm on web
+            if (window.confirm('Supprimer cette photo ?')) {
+                onPhotosChange(photos.filter((_, i) => i !== index));
+            }
+        } else {
+            Alert.alert('Supprimer ?', '', [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                    text: 'Supprimer',
+                    style: 'destructive',
+                    onPress: () => {
+                        onPhotosChange(photos.filter((_, i) => i !== index));
+                    },
                 },
-            },
-        ]);
+            ]);
+        }
     };
 
     return (
@@ -129,7 +193,9 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
                         style={styles.actionButton}
                         onPress={handleOpenCamera}
                     >
-                        <Text style={styles.actionButtonText}>📷 Caméra</Text>
+                        <Text style={styles.actionButtonText}>
+                            {Platform.OS === 'web' ? '📷 Webcam' : '📷 Caméra'}
+                        </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -171,7 +237,7 @@ const PhotoCapture = ({ photos, onPhotosChange, maxPhotos = 3, disabled }) => {
                 </View>
             )}
 
-            {/* CAMERA MODAL */}
+            {/* CAMERA MODAL — works on both native and web (getUserMedia) */}
             <Modal visible={showCamera} animationType="slide">
                 <View style={styles.cameraContainer}>
                     <CameraView

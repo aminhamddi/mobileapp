@@ -1,11 +1,10 @@
 /**
- * Service API pour communication avec backend
+ * Service API pour communication avec backend — compatible web et native
  */
 import axios from 'axios';
+import { Platform } from 'react-native';
 import { API_URL, CONFIG } from '../constants/config';
 import { getToken, saveToken, clearToken } from '../utils/storage';
-
-
 
 // Instance axios
 const api = axios.create({
@@ -15,27 +14,6 @@ const api = axios.create({
         'Content-Type': 'application/json',
     },
 });
-// Interceptor pour gérer erreurs
-api.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-        if (error.response) {
-            console.error('API Error Response:', {
-                status: error.response.status,
-                data: error.response.data,
-                url: error.config.url
-            });
-        } else if (error.request) {
-            console.error('API No Response:', error.request);
-        } else {            console.error('API Setup Error:', error.message);
-        }
-
-        if (error.response?.status === 401) {
-            await clearToken();
-        }
-        return Promise.reject(error);
-    }
-);
 
 // Interceptor pour ajouter token JWT
 api.interceptors.request.use(
@@ -55,10 +33,20 @@ api.interceptors.request.use(
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
+        if (error.response) {
+            console.error('API Error Response:', {
+                status: error.response.status,
+                data: error.response.data,
+                url: error.config.url
+            });
+        } else if (error.request) {
+            console.error('API No Response:', error.request);
+        } else {
+            console.error('API Setup Error:', error.message);
+        }
+
         if (error.response?.status === 401) {
-            // Token expiré, logout
             await clearToken();
-            // Navigate to login
         }
         return Promise.reject(error);
     }
@@ -129,21 +117,48 @@ export const getReponsesByAudit = async (auditId) => {
     return response.data;
 };
 
-// ========== UPLOAD PHOTOS ==========
+// ========== UPLOAD PHOTOS — web + native ==========
 
 export const uploadPhoto = async (photoUri) => {
     const formData = new FormData();
 
-    // Créer objet file depuis URI
-    const filename = photoUri.split('/').pop();
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : 'image/jpeg';
+    if (Platform.OS === 'web') {
+        // On web: convert data URI or blob URL to a File/Blob
+        let file;
 
-    formData.append('file', {
-        uri: photoUri,
-        name: filename,
-        type,
-    });
+        if (photoUri.startsWith('data:')) {
+            // Data URI (from camera.takePictureAsync on web)
+            const response = await fetch(photoUri);
+            const blob = await response.blob();
+            file = new File([blob], `photo_${Date.now()}.jpg`, { type: blob.type });
+        } else if (photoUri.startsWith('blob:')) {
+            // Blob URL (from image picker on web)
+            const response = await fetch(photoUri);
+            const blob = await response.blob();
+            file = new File([blob], `photo_${Date.now()}.jpg`, { type: blob.type });
+        } else if (photoUri.startsWith('http')) {
+            // Already a URL (e.g. from a CDN) — no need to upload
+            return { url: photoUri };
+        } else {
+            // Fallback: try as a file path
+            const response = await fetch(photoUri);
+            const blob = await response.blob();
+            file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        }
+
+        formData.append('file', file);
+    } else {
+        // Native: use { uri, name, type } object format
+        const filename = photoUri.split('/').pop();
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+        formData.append('file', {
+            uri: photoUri,
+            name: filename,
+            type,
+        });
+    }
 
     const response = await api.post('/api/upload/photo', formData, {
         headers: {
@@ -163,6 +178,12 @@ export const getServices = async () => {
 
 export const getServicesWithQuestions = async () => {
     const response = await api.get('/api/services/with-questions');
+    return response.data;
+};
+
+// ===== NLP / ACTIONS =====
+export const getActionsByAudit = async (auditId) => {
+    const response = await api.get(`/api/nlp/actions/${auditId}`);
     return response.data;
 };
 

@@ -1,5 +1,5 @@
 /**
- * Écran récapitulatif de l'audit
+ * Écran récapitulatif de l'audit — compatible web + native
  */
 import React, { useState } from 'react';
 import {
@@ -10,6 +10,7 @@ import {
     StyleSheet,
     Alert,
     ActivityIndicator,
+    Platform,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import useAuditStore from '../store/useAuditStore';
@@ -62,18 +63,39 @@ const RecapScreen = ({ navigation }) => {
 
     const scoreGlobal = calculateScore();
 
+    // Show confirmation and navigate to Home
+    const showSuccessAndNavigate = (message) => {
+        if (Platform.OS === 'web') {
+            window.alert(message);
+            navigation.navigate('Home');
+        } else {
+            Alert.alert('Audit finalisé !', message, [
+                { text: 'OK', onPress: () => navigation.navigate('Home') },
+            ]);
+        }
+    };
+
     // Handler finaliser
     const handleFinalize = async () => {
         // Vérifier toutes réponses
         if (questionsNonRepondues.length > 0) {
-            Alert.alert(
-                'Audit incomplet',
-                `Il reste ${questionsNonRepondues.length} question(s) non répondue(s). Voulez-vous quand même finaliser ?`,
-                [
-                    { text: 'Non', style: 'cancel' },
-                    { text: 'Oui', onPress: submitAudit },
-                ]
-            );
+            if (Platform.OS === 'web') {
+                const confirmed = window.confirm(
+                    `Il reste ${questionsNonRepondues.length} question(s) non répondue(s). Voulez-vous quand même finaliser ?`
+                );
+                if (confirmed) {
+                    submitAudit();
+                }
+            } else {
+                Alert.alert(
+                    'Audit incomplet',
+                    `Il reste ${questionsNonRepondues.length} question(s) non répondue(s). Voulez-vous quand même finaliser ?`,
+                    [
+                        { text: 'Non', style: 'cancel' },
+                        { text: 'Oui', onPress: submitAudit },
+                    ]
+                );
+            }
             return;
         }
 
@@ -82,7 +104,11 @@ const RecapScreen = ({ navigation }) => {
 
     const submitAudit = async () => {
         if (!currentAudit) {
-            Alert.alert('Erreur', 'Données de l\'audit introuvables. Veuillez recommencer.');
+            if (Platform.OS === 'web') {
+                window.alert('Données de l\'audit introuvables. Veuillez recommencer.');
+            } else {
+                Alert.alert('Erreur', 'Données de l\'audit introuvables. Veuillez recommencer.');
+            }
             return;
         }
 
@@ -100,27 +126,24 @@ const RecapScreen = ({ navigation }) => {
             // 2. Finaliser l'audit
             await finalizeAudit(currentAudit.id);
 
-            // 3. Clear draft 
+            // 3. Clear draft
             await clearDraftReponses(currentAudit.id);
 
             // 4. Reset store
             reset();
 
-            // 5. Confirmation
-            Alert.alert(
-                'Audit finalisé !',
-                `Score global : ${scoreGlobal.toFixed(1)}%\n${nbReponses} réponses enregistrées`,
-                [
-                    {
-                        text: 'OK',
-                        onPress: () => navigation.navigate('Home'),
-                    },
-                ]
+            // 5. Confirmation + navigate
+            showSuccessAndNavigate(
+                `Score global : ${scoreGlobal.toFixed(1)}%\n${nbReponses} réponses enregistrées`
             );
 
         } catch (error) {
             console.error('Error finalizing audit:', error);
-            Alert.alert('Erreur', 'Impossible de finaliser l\'audit');
+            if (Platform.OS === 'web') {
+                window.alert('Impossible de finaliser l\'audit');
+            } else {
+                Alert.alert('Erreur', 'Impossible de finaliser l\'audit');
+            }
         } finally {
             setLoading(false);
         }
