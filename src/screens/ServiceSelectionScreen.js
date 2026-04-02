@@ -1,29 +1,29 @@
 /**
- * Écran sélection service — un seul audit, les services sont des groupes de navigation
+ * Ecran selection service — avec progression par service
  */
 import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
+    ScrollView,
     TouchableOpacity,
     StyleSheet,
-    ScrollView,
-    Alert,
     ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { createAudit, getServicesWithQuestions } from '../services/api';
 import useAuditStore from '../store/useAuditStore';
 
 const ServiceSelectionScreen = ({ navigation }) => {
-    const [loading, setLoading] = useState(false);
-    const [servicesData, setServicesData] = useState([]);
-    const [expandedService, setExpandedService] = useState(null);
+    const [services, setServices] = useState([]);
+    const [loading, setLoading] = useState(true);
 
     const user = useAuditStore((state) => state.user);
-    const allQuestions = useAuditStore((state) => state.questions);
+    const currentAudit = useAuditStore((state) => state.currentAudit);
     const setCurrentAudit = useAuditStore((state) => state.setCurrentAudit);
-    const reset = useAuditStore((state) => state.reset);
+    const setService = useAuditStore((state) => state.setService);
+    const getServiceProgress = useAuditStore((state) => state.getServiceProgress);
 
     useEffect(() => {
         loadServices();
@@ -31,77 +31,43 @@ const ServiceSelectionScreen = ({ navigation }) => {
 
     const loadServices = async () => {
         try {
+            setLoading(true);
             const data = await getServicesWithQuestions();
-            setServicesData(Array.isArray(data) ? data : []);
+            setServices(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Erreur chargement services:', error);
+            setServices([]);
             Alert.alert('Erreur', 'Impossible de charger les services');
-        }
-    };
-
-    const toggleExpand = (serviceId) => {
-        setExpandedService(expandedService === serviceId ? null : serviceId);
-    };
-
-    const handleStartAudit = async () => {
-        setLoading(true);
-        try {
-            reset();
-
-            const auditData = {
-                plant_id: user.plant_id,
-                service_id: null,
-                date_audit: new Date().toISOString().split('T')[0],
-                heure_debut: new Date().toTimeString().split(' ')[0],
-            };
-
-            const audit = await createAudit(auditData);
-            setCurrentAudit(audit);
-
-            // All questions, sorted by numero
-            const sorted = [...allQuestions].sort((a, b) => a.numero - b.numero);
-            // setQuestions is already done in HomeScreen, all questions stay
-
-            navigation.navigate('Question', { startServiceId: null });
-
-        } catch (error) {
-            console.error('Error creating audit:', error);
-            Alert.alert(
-                'Erreur',
-                'Impossible de créer l\'audit: ' + (error.response?.data?.detail || error.message)
-            );
         } finally {
             setLoading(false);
         }
     };
 
-    const handleJumpToService = (service) => {
-        // Jump to first question of this service group
-        const firstQuestion = allQuestions
-            .filter(q => q.services && q.services.some(s => s.id === service.id))
-            .sort((a, b) => a.numero - b.numero)[0];
-
-        if (!firstQuestion) {
-            Alert.alert('Attention', 'Aucune question pour ce service');
-            return;
+    const handleSelectService = async (service) => {
+        setLoading(true);
+        try {
+            // Create audit if not already created
+            if (!currentAudit) {
+                const auditData = {
+                    plant_id: user?.plant_id || 1,
+                    service_id: service.id,
+                    date_audit: new Date().toISOString().split('T')[0],
+                    heure_debut: new Date().toTimeString().split(' ')[0],
+                };
+                const audit = await createAudit(auditData);
+                setCurrentAudit(audit);
+            }
+            setService(service.id);
+            navigation.navigate('Question');
+        } catch (error) {
+            console.error('Erreur creation audit:', error);
+            Alert.alert('Erreur', "Impossible de creer l'audit");
+        } finally {
+            setLoading(false);
         }
-
-        const index = allQuestions
-            .sort((a, b) => a.numero - b.numero)
-            .findIndex(q => q.id === firstQuestion.id);
-
-        navigation.navigate('Question', {
-            startServiceId: service.id,
-            startQuestionIndex: index >= 0 ? index : 0,
-        });
     };
 
-    const getServiceColor = (index) => {
-        const colors = ['#1976D2', '#E91E63', '#FF9800', '#4CAF50', '#9C27B0', '#00BCD4', '#F44336'];
-        return colors[index % colors.length];
-    };
-
-    if (servicesData.length === 0) {
+    if (loading) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={COLORS.primary} />
@@ -110,94 +76,101 @@ const ServiceSelectionScreen = ({ navigation }) => {
         );
     }
 
+    const serviceList = Array.isArray(services) ? services : [];
+
     return (
-        <View style={styles.container}>
-            <ScrollView style={styles.content}>
-                <Text style={styles.title}>Nouvel Audit</Text>
+        <ScrollView style={styles.container}>
+            <View style={styles.content}>
+                <Text style={styles.title}>Choisir un service</Text>
                 <Text style={styles.subtitle}>
-                    Choisissez par quel service commencer
+                    Selectionnez le service avec lequel commencer l'audit
                 </Text>
 
-                {servicesData.map((service, index) => {
-                    const isExpanded = expandedService === service.id;
-                    const questionCount = service.questions?.length || 0;
-                    const color = getServiceColor(index);
+                {serviceList.length === 0 ? (
+                    <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>Aucun service disponible</Text>
+                    </View>
+                ) : (
+                    serviceList.map((service) => {
+                        const progress = getServiceProgress(service.id);
+                        const isComplete = progress.total > 0 && progress.answered === progress.total;
 
-                    return (
-                        <View key={service.id} style={styles.serviceBlock}>
+                        return (
                             <TouchableOpacity
-                                style={[styles.serviceCard, { borderLeftColor: color }]}
-                                onPress={() => {
-                                    toggleExpand(service.id);
-                                }}
-                                activeOpacity={0.7}
+                                key={service.id}
+                                style={[
+                                    styles.serviceCard,
+                                    isComplete && styles.serviceCardComplete,
+                                ]}
+                                onPress={() => handleSelectService(service)}
                             >
                                 <View style={styles.serviceHeader}>
-                                    <View style={[styles.serviceIcon, { backgroundColor: color + '20' }]}>
-                                        <Text style={[styles.serviceIconText, { color }]}>
-                                            {service.nom.charAt(0).toUpperCase()}
-                                        </Text>
-                                    </View>
+                                    <Text style={styles.serviceIcon}>
+                                        {getIconForService(service.nom)}
+                                    </Text>
                                     <View style={styles.serviceInfo}>
                                         <Text style={styles.serviceName}>{service.nom}</Text>
-                                        <Text style={styles.questionCount}>
-                                            {questionCount} question{questionCount !== 1 ? 's' : ''}
+                                        <Text style={styles.serviceQuestions}>
+                                            {progress.total} question{progress.total > 1 ? 's' : ''}
                                         </Text>
                                     </View>
-                                    <Text style={styles.expandIcon}>
-                                        {isExpanded ? '▲' : '▼'}
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
-
-                            {isExpanded && service.questions && service.questions.length > 0 && (
-                                <View style={styles.questionsContainer}>
-                                    {service.questions.map((question) => (
-                                        <View key={question.id} style={styles.questionRow}>
-                                            <Text style={[styles.questionNumber, { color }]}>
-                                                Q{question.numero}
-                                            </Text>
-                                            <Text style={styles.questionText} numberOfLines={2}>
-                                                {question.texte}
-                                            </Text>
-                                        </View>
-                                    ))}
-
-                                    <TouchableOpacity
-                                        style={[styles.startButton, { backgroundColor: color }]}
-                                        onPress={() => handleJumpToService(service)}
-                                    >
-                                        <Text style={styles.startButtonText}>
-                                            Commencer par {service.nom}
+                                    <View style={styles.progressBadge}>
+                                        <Text style={[
+                                            styles.progressText,
+                                            isComplete && styles.progressTextComplete,
+                                        ]}>
+                                            {progress.answered}/{progress.total}
                                         </Text>
-                                    </TouchableOpacity>
+                                        {isComplete && (
+                                            <Text style={styles.checkmark}> OK</Text>
+                                        )}
+                                    </View>
                                 </View>
-                            )}
-                        </View>
-                    );
-                })}
-            </ScrollView>
 
-            {/* Bouton démarrer global */}
-            <View style={styles.footer}>
-                <TouchableOpacity
-                    style={[styles.mainButton, loading && styles.mainButtonDisabled]}
-                    onPress={handleStartAudit}
-                    disabled={loading}
-                >
-                    <Text style={styles.mainButtonText}>
-                        {loading ? 'Création...' : `Démarrer l'audit (${allQuestions.length} questions)`}
-                    </Text>
-                </TouchableOpacity>
+                                {progress.total > 0 && (
+                                    <View style={styles.progressBar}>
+                                        <View
+                                            style={[
+                                                styles.progressBarFill,
+                                                {
+                                                    width: `${progress.percentage}%`,
+                                                    backgroundColor: isComplete
+                                                        ? '#4CAF50'
+                                                        : COLORS.primary,
+                                                },
+                                            ]}
+                                        />
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
             </View>
-        </View>
+        </ScrollView>
     );
 };
+
+function getIconForService(nom) {
+    switch (nom) {
+        case 'Production': return 'P';
+        case 'Maintenance': return 'M';
+        case 'OEE': return 'O';
+        case 'Formation': return 'F';
+        case 'VCM': return 'V';
+        case 'PE': return 'E';
+        case 'QM': return 'Q';
+        default: return 'S';
+    }
+}
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: COLORS.background,
+    },
+    content: {
+        padding: 20,
     },
     loadingContainer: {
         flex: 1,
@@ -210,50 +183,52 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: COLORS.textSecondary,
     },
-    content: {
-        flex: 1,
-        padding: 16,
-    },
     title: {
         fontSize: 24,
         fontWeight: 'bold',
         color: COLORS.text,
-        marginBottom: 4,
+        marginBottom: 8,
     },
     subtitle: {
         fontSize: 14,
         color: COLORS.textSecondary,
-        marginBottom: 20,
+        marginBottom: 24,
     },
-    serviceBlock: {
-        marginBottom: 12,
+    emptyContainer: {
+        padding: 40,
+        alignItems: 'center',
+    },
+    emptyText: {
+        fontSize: 16,
+        color: COLORS.textSecondary,
     },
     serviceCard: {
         backgroundColor: COLORS.surface,
         borderRadius: 12,
         padding: 16,
-        borderLeftWidth: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    serviceCardComplete: {
+        borderColor: '#4CAF50',
+        backgroundColor: '#F1F8E9',
     },
     serviceHeader: {
         flexDirection: 'row',
         alignItems: 'center',
     },
     serviceIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    serviceIconText: {
-        fontSize: 20,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: COLORS.primary + '20',
+        textAlign: 'center',
+        lineHeight: 40,
+        fontSize: 18,
         fontWeight: 'bold',
+        color: COLORS.primary,
+        marginRight: 12,
     },
     serviceInfo: {
         flex: 1,
@@ -263,75 +238,42 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.text,
     },
-    questionCount: {
+    serviceQuestions: {
         fontSize: 13,
         color: COLORS.textSecondary,
         marginTop: 2,
     },
-    expandIcon: {
-        fontSize: 12,
-        color: COLORS.textSecondary,
-    },
-    questionsContainer: {
-        backgroundColor: '#FAFAFA',
-        borderBottomLeftRadius: 12,
-        borderBottomRightRadius: 12,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        marginLeft: 16,
-        borderLeftWidth: 2,
-        borderLeftColor: '#E0E0E0',
-    },
-    questionRow: {
+    progressBadge: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F0F0F0',
-    },
-    questionNumber: {
-        fontSize: 13,
-        fontWeight: '700',
-        width: 36,
-        marginTop: 1,
-    },
-    questionText: {
-        flex: 1,
-        fontSize: 13,
-        color: COLORS.text,
-        lineHeight: 18,
-    },
-    startButton: {
-        borderRadius: 10,
-        padding: 14,
         alignItems: 'center',
+        backgroundColor: COLORS.primary + '20',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 16,
+    },
+    progressText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.primary,
+    },
+    progressTextComplete: {
+        color: '#4CAF50',
+    },
+    checkmark: {
+        fontSize: 14,
+        color: '#4CAF50',
+        fontWeight: 'bold',
+    },
+    progressBar: {
+        height: 4,
+        backgroundColor: '#E0E0E0',
+        borderRadius: 2,
         marginTop: 12,
-        marginBottom: 4,
+        overflow: 'hidden',
     },
-    startButtonText: {
-        color: '#FFFFFF',
-        fontSize: 15,
-        fontWeight: '600',
-    },
-    footer: {
-        padding: 16,
-        backgroundColor: COLORS.surface,
-        borderTopWidth: 1,
-        borderTopColor: COLORS.border,
-    },
-    mainButton: {
-        backgroundColor: COLORS.primary,
-        borderRadius: 12,
-        padding: 16,
-        alignItems: 'center',
-    },
-    mainButtonDisabled: {
-        opacity: 0.5,
-    },
-    mainButtonText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '600',
+    progressBarFill: {
+        height: '100%',
+        borderRadius: 2,
     },
 });
 

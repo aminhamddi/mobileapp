@@ -1,27 +1,32 @@
 /**
- * Configuration de l'application — web + native
+ * Configuration API — standalone mode
+ * Each project runs on its own port
  */
-
 import { Platform } from 'react-native';
 
 let API_URL;
 
-// Priority: ENV variable -> dynamic web detection -> hardcoded fallback
+// Priority: ENV variable -> fallback -> localhost
 if (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_API_URL) {
     API_URL = process.env.EXPO_PUBLIC_API_URL;
 } else if (Platform.OS === 'web') {
-    // On web, use the same host as the browser (works with any IP/hostname)
+    // On web: use the same host as the page but port 8000 (backend)
     const { protocol, hostname } = window.location;
     API_URL = `${protocol}//${hostname}:8000`;
 } else {
+    // Native: try config.local.js
     try {
         const localConfig = require('./config.local');
         API_URL = localConfig.API_URL;
     } catch (e) {
-        // Native fallback — change this to your machine's local IP
-        API_URL = __DEV__
-            ? 'http://172.20.10.2:8000'
-            : 'https://api-production.tn';
+        if (__DEV__) {
+            console.warn(
+                'API_URL non configure. Creez src/constants/config.local.js avec:\n' +
+                'export const API_URL = "http://<SERVER_IP>:8000";\n\n' +
+                'Ou definissez EXPO_PUBLIC_API_URL=<URL> dans .env'
+            );
+        }
+        API_URL = 'http://localhost:8000';
     }
 }
 

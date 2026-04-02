@@ -46,3 +46,5 @@ src/constants/config.local.js
 AGENTS.md
 skills
 rapport
+DEPLOY.md
+.env

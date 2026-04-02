@@ -77,30 +77,20 @@ const RecapScreen = ({ navigation }) => {
 
     // Handler finaliser
     const handleFinalize = async () => {
-        // Vérifier toutes réponses
+        // Bloquer si questions non repondues
         if (questionsNonRepondues.length > 0) {
+            const msg = 'Il reste ' + questionsNonRepondues.length + ' question(s) non repondue(s). Veuillez toutes les repondre avant de finaliser.';
             if (Platform.OS === 'web') {
-                const confirmed = window.confirm(
-                    `Il reste ${questionsNonRepondues.length} question(s) non répondue(s). Voulez-vous quand même finaliser ?`
-                );
-                if (confirmed) {
-                    submitAudit();
-                }
+                window.alert(msg);
             } else {
-                Alert.alert(
-                    'Audit incomplet',
-                    `Il reste ${questionsNonRepondues.length} question(s) non répondue(s). Voulez-vous quand même finaliser ?`,
-                    [
-                        { text: 'Non', style: 'cancel' },
-                        { text: 'Oui', onPress: submitAudit },
-                    ]
-                );
+                Alert.alert('Audit incomplet', msg);
             }
             return;
         }
 
         submitAudit();
     };
+
 
     const submitAudit = async () => {
         if (!currentAudit) {

@@ -1,5 +1,5 @@
 /**
- * Écran de question avec NA button + Photos + Auto-save
+ * Ecran de question avec filtrage par service
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -20,23 +20,26 @@ import NoteSelector from '../components/NoteSelector';
 import NAButton from '../components/NAButton';
 import PhotoCapture from '../components/PhotoCapture';
 import { saveDraftReponses } from '../utils/storage';
+import { createReponse } from '../services/api';
 import { getServicesWithQuestions } from '../services/api';
 
-const QuestionScreen = ({ navigation, route }) => {
+const QuestionScreen = ({ navigation }) => {
   const currentQuestion = useAuditStore((state) => state.getCurrentQuestion());
   const currentQuestionIndex = useAuditStore((state) => state.currentQuestionIndex);
-  const questions = useAuditStore((state) => state.questions);
+  const filteredQuestions = useAuditStore((state) => state.filteredQuestions);
+  const currentServiceId = useAuditStore((state) => state.currentServiceId);
   const gravites = useAuditStore((state) => state.gravites);
   const reponses = useAuditStore((state) => state.reponses);
   const currentAudit = useAuditStore((state) => state.currentAudit);
   const setReponse = useAuditStore((state) => state.setReponse);
   const nextQuestion = useAuditStore((state) => state.nextQuestion);
   const previousQuestion = useAuditStore((state) => state.previousQuestion);
-  const goToQuestion = useAuditStore((state) => state.goToQuestion);
+  const setService = useAuditStore((state) => state.setService);
+  const getServiceProgress = useAuditStore((state) => state.getServiceProgress);
 
   const [servicesData, setServicesData] = useState([]);
 
-  // États locaux
+  // Etats locaux
   const [note, setNote] = useState(null);
   const [isNA, setIsNA] = useState(false);
   const [raisonNA, setRaisonNA] = useState('');
@@ -60,15 +63,7 @@ const QuestionScreen = ({ navigation, route }) => {
     }
   };
 
-  // Aller à la question de départ si spécifiée
-  useEffect(() => {
-    const params = route?.params;
-    if (params?.startQuestionIndex && params.startQuestionIndex > 0) {
-      goToQuestion(params.startQuestionIndex);
-    }
-  }, [route?.params?.startQuestionIndex]);
-
-  // Charger réponse existante
+  // Charger reponse existante
   useEffect(() => {
     if (currentQuestion) {
       const existingReponse = reponses[currentQuestion.id];
@@ -81,7 +76,6 @@ const QuestionScreen = ({ navigation, route }) => {
         setDeviation(existingReponse.deviation || false);
         setDesignation(existingReponse.designation || null);
       } else {
-        // Reset pour nouvelle question
         setNote(null);
         setIsNA(false);
         setRaisonNA('');
@@ -92,22 +86,33 @@ const QuestionScreen = ({ navigation, route }) => {
       }
     }
   }, [currentQuestion, reponses]);
-  
+
   // AUTO-SAVE toutes les 30 secondes
   useEffect(() => {
     if (!currentAudit) return;
-    
+
     const interval = setInterval(async () => {
-      if (Object.keys(reponses).length > 0) {
+      if (Object.keys(reponses).length > 0 && currentAudit) {
+        // Save to local storage
         await saveDraftReponses(currentAudit.id, reponses);
+        // Save to API (server backup)
+        for (const [questionId, reponseData] of Object.entries(reponses)) {
+          try {
+            await createReponse({
+              audit_id: currentAudit.id,
+              ...reponseData,
+            });
+          } catch (e) {
+            // Ignore errors (duplicate/overwrite is OK)
+          }
+        }
         setLastSaveTime(new Date());
-        console.log('Auto-save:', Object.keys(reponses).length, 'réponses');
       }
-    }, 30000); // 30 secondes
-    
+    }, 30000);
+
     return () => clearInterval(interval);
   }, [currentAudit, reponses]);
-  
+
   if (!currentQuestion) {
     return (
       <View style={styles.container}>
@@ -115,18 +120,14 @@ const QuestionScreen = ({ navigation, route }) => {
       </View>
     );
   }
-  
-  // Trouver gravité
+
+  // Trouver gravite
   const gravite = gravites.find((g) => g.id === currentQuestion.gravite_id);
-  
-  // Détection automatique de déviation selon gravité
+
+  // Detection automatique de deviation selon gravite
   const detectDeviation = (selectedNote, gravite) => {
     if (!gravite || selectedNote === null) return false;
     const niveau = gravite.niveau;
-    // Gravité 1: deviation si note < 2
-    // Gravité 2: deviation si note < 3
-    // Gravité 3: deviation si note < 4
-    // Gravité 4: deviation si note = 0
     if (niveau === 1) return selectedNote < 2;
     if (niveau === 2) return selectedNote < 3;
     if (niveau === 3) return selectedNote < 4;
@@ -134,14 +135,28 @@ const QuestionScreen = ({ navigation, route }) => {
     return false;
   };
 
-  // Suggestion de désignation selon la note
+  // Suggestion de designation selon la note
   const suggestDesignation = (selectedNote, gravite) => {
     if (!gravite || selectedNote === null) return 'AA';
-    const niveau = gravite.niveau;
     if (selectedNote === 0) return 'DMA';
-    if (niveau === 4 && selectedNote === 0) return 'DMA';
     if (selectedNote <= 2) return 'DMI';
     return 'AA';
+  };
+
+  // Sauvegarder la reponse courante
+  const saveCurrentReponse = () => {
+    if (note !== null || isNA) {
+      setReponse(currentQuestion.id, {
+        question_id: currentQuestion.id,
+        note: isNA ? null : note,
+        is_na: isNA,
+        raison_na: isNA ? raisonNA : null,
+        commentaire,
+        photos,
+        deviation: isNA ? false : deviation,
+        designation: isNA ? null : designation,
+      });
+    }
   };
 
   // Handlers
@@ -150,7 +165,6 @@ const QuestionScreen = ({ navigation, route }) => {
     setIsNA(false);
     setRaisonNA('');
 
-    // Auto-detect deviation
     const isDeviation = detectDeviation(selectedNote, gravite);
     setDeviation(isDeviation);
 
@@ -160,7 +174,7 @@ const QuestionScreen = ({ navigation, route }) => {
       setDesignation(null);
     }
   };
-  
+
   const handleToggleNA = (value) => {
     setIsNA(value);
     if (value) {
@@ -169,82 +183,47 @@ const QuestionScreen = ({ navigation, route }) => {
       setDesignation(null);
     }
   };
-  
+
   const handleNext = () => {
-    // Validation
     if (!isNA && note === null) {
-      Alert.alert('Attention', 'Veuillez sélectionner une note ou marquer la question comme NA');
+      Alert.alert('Attention', 'Veuillez selectionner une note ou marquer NA');
       return;
     }
-    
-    // Sauvegarder réponse
-    setReponse(currentQuestion.id, {
-      question_id: currentQuestion.id,
-      note: isNA ? null : note,
-      is_na: isNA,
-      raison_na: isNA ? raisonNA : null,
-      commentaire,
-      photos,
-      deviation: isNA ? false : deviation,
-      designation: isNA ? null : designation,
-    });
-    
-    // Aller suivant
-    if (currentQuestionIndex < questions.length - 1) {
+
+    saveCurrentReponse();
+
+    if (currentQuestionIndex < filteredQuestions.length - 1) {
       nextQuestion();
     } else {
-      // Dernière question, aller au récap
-      navigation.navigate('Recap');
+      // Derniere question du service — verifier si TOUTES les questions sont repondues
+      const questions = useAuditStore.getState().questions;
+      const reponses = useAuditStore.getState().reponses;
+      const unanswered = questions.filter(q => !reponses[q.id]).length;
+
+      if (unanswered === 0) {
+        navigation.navigate('Recap');
+      } else {
+        Alert.alert('Service termine', 'Choisissez un autre service pour continuer.');
+        navigation.navigate('ServiceSelection');
+      }
     }
   };
-  
+
   const handlePrevious = () => {
-    // Sauvegarder réponse avant de revenir
-    if (note !== null || isNA) {
-      setReponse(currentQuestion.id, {
-        question_id: currentQuestion.id,
-        note: isNA ? null : note,
-        is_na: isNA,
-        raison_na: isNA ? raisonNA : null,
-        commentaire,
-        photos,
-        deviation: isNA ? false : deviation,
-        designation: isNA ? null : designation,
-      });
-    }
-    
+    saveCurrentReponse();
     previousQuestion();
   };
-  
-  const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
-  // Service courant de la question active
-  const currentServiceOfQuestion = currentQuestion?.services?.[0] || null;
-
-  // Sauter au premier question d'un service
-  const jumpToService = (serviceId) => {
-    // Sauvegarder réponse actuelle
-    if (note !== null || isNA) {
-      setReponse(currentQuestion.id, {
-        question_id: currentQuestion.id,
-        note: isNA ? null : note,
-        is_na: isNA,
-        raison_na: isNA ? raisonNA : null,
-        commentaire,
-        photos,
-        deviation: isNA ? false : deviation,
-        designation: isNA ? null : designation,
-      });
-    }
-
-    const sorted = [...questions].sort((a, b) => a.numero - b.numero);
-    const index = sorted.findIndex(q =>
-      q.services && q.services.some(s => s.id === serviceId)
-    );
-    if (index >= 0) {
-      goToQuestion(index);
-    }
+  // Switch to a different service (save current first)
+  const handleSwitchService = (serviceId) => {
+    if (serviceId === currentServiceId) return;
+    saveCurrentReponse();
+    setService(serviceId);
   };
+
+  const progress = filteredQuestions.length > 0
+    ? ((currentQuestionIndex + 1) / filteredQuestions.length) * 100
+    : 0;
 
   const getServiceColor = (serviceId) => {
     const colors = ['#1976D2', '#E91E63', '#FF9800', '#4CAF50', '#9C27B0', '#00BCD4', '#F44336'];
@@ -252,243 +231,203 @@ const QuestionScreen = ({ navigation, route }) => {
     return colors[idx >= 0 ? idx % colors.length : 0];
   };
 
-  // Nombre de questions répondues par service
-  const getServiceProgress = (serviceId) => {
-    const serviceQs = questions.filter(q =>
-      q.services && q.services.some(s => s.id === serviceId)
-    );
-    const answered = serviceQs.filter(q => reponses[q.id]).length;
-    return { answered, total: serviceQs.length };
-  };
-
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
     >
       <SafeAreaView style={styles.container}>
-      {/* Barre de progression */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              if (note !== null || isNA) {
-                setReponse(currentQuestion.id, {
-                  question_id: currentQuestion.id,
-                  note: isNA ? null : note,
-                  is_na: isNA,
-                  raison_na: isNA ? raisonNA : null,
-                  commentaire,
-                  photos,
-                  deviation: isNA ? false : deviation,
-                  designation: isNA ? null : designation,
-                });
-              }
-              navigation.navigate('ServiceSelection');
-            }}
-          >
-            <Text style={styles.backButtonText}>‹ Services</Text>
-          </TouchableOpacity>
-          <Text style={styles.progressText}>
-            {currentQuestionIndex + 1} / {questions.length}
-          </Text>
-        </View>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
-        </View>
-
-        {/* Indicateur auto-save */}
-        {lastSaveTime && (
-          <Text style={styles.saveIndicator}>
-            💾 Sauvegardé à {lastSaveTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        )}
-      </View>
-
-      {/* Barre de navigation par service */}
-      {servicesData.length > 0 && (
-        <View style={styles.serviceBarContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.serviceBar}
-          >
-            {servicesData.map((service) => {
-              const isActive = currentServiceOfQuestion &&
-                currentServiceOfQuestion.id === service.id;
-              const color = getServiceColor(service.id);
-              const prog = getServiceProgress(service.id);
-
-              return (
-                <TouchableOpacity
-                  key={service.id}
-                  style={[
-                    styles.serviceChip,
-                    isActive && { backgroundColor: color, borderColor: color },
-                  ]}
-                  onPress={() => jumpToService(service.id)}
-                >
-                  <Text
-                    style={[
-                      styles.serviceChipText,
-                      isActive && { color: '#FFFFFF' },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {service.nom}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.serviceChipCount,
-                      isActive && { color: '#FFFFFF' },
-                    ]}
-                  >
-                    {prog.answered}/{prog.total}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
-      
-      <ScrollView 
-        style={styles.content} 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
-      >
-        {/* Carte question */}
-        <View style={styles.questionCard}>
-          <View style={styles.questionHeader}>
-            <Text style={styles.questionNumber}>Q{currentQuestion.numero}</Text>
-            <View style={[styles.graviteBadge, { backgroundColor: getGraviteColor(gravite) }]}>
-              <Text style={styles.graviteText}>{gravite?.nom}</Text>
-            </View>
+        {/* Barre de progression */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressRow}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                saveCurrentReponse();
+                navigation.navigate('ServiceSelection');
+              }}
+            >
+              <Text style={styles.backButtonText}>Services</Text>
+            </TouchableOpacity>
+            <Text style={styles.progressText}>
+              {currentQuestionIndex + 1} / {filteredQuestions.length}
+            </Text>
           </View>
-          
-          <Text style={styles.questionText}>{currentQuestion.texte}</Text>
-          
-          {currentQuestion.instructions && (
-            <Text style={styles.instructions}>{currentQuestion.instructions}</Text>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          </View>
+
+          {lastSaveTime && (
+            <Text style={styles.saveIndicator}>
+              Sauvegarde a {lastSaveTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+            </Text>
           )}
         </View>
-        
-        {/* Note Selector */}
-        <NoteSelector
-          gravite={gravite}
-          selectedNote={note}
-          onSelectNote={handleSelectNote}
-          disabled={isNA}
-        />
 
-        {/* Déviation détectée + Sélection Désignation */}
-        {deviation && !isNA && (
-          <View style={styles.deviationContainer}>
-            <Text style={styles.deviationAlert}>
-              ⚠️ Déviation détectée (note insuffisante pour gravité {gravite?.nom})
-            </Text>
-            <Text style={styles.designationLabel}>Désignation :</Text>
-            <View style={styles.designationRow}>
-              {['AA', 'DMI', 'DMA'].map((des) => (
-                <TouchableOpacity
-                  key={des}
-                  style={[
-                    styles.designationButton,
-                    designation === des && styles.designationButtonSelected,
-                    des === 'AA' && { borderColor: '#4CAF50' },
-                    des === 'DMI' && { borderColor: '#FF9800' },
-                    des === 'DMA' && { borderColor: '#F44336' },
-                    designation === des && des === 'AA' && { backgroundColor: '#4CAF50' },
-                    designation === des && des === 'DMI' && { backgroundColor: '#FF9800' },
-                    designation === des && des === 'DMA' && { backgroundColor: '#F44336' },
-                  ]}
-                  onPress={() => setDesignation(des)}
-                >
-                  <Text style={[
-                    styles.designationText,
-                    designation === des && styles.designationTextSelected,
-                  ]}>
-                    {des}
-                  </Text>
-                  <Text style={[
-                    styles.designationDesc,
-                    designation === des && { color: '#FFFFFF' },
-                  ]}>
-                    {des === 'AA' ? 'À améliorer' : des === 'DMI' ? 'Déviation mineure' : 'Déviation majeure'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+        {/* Barre de navigation par service */}
+        {servicesData.length > 0 && (
+          <View style={styles.serviceBarContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.serviceBar}
+            >
+              {servicesData.map((service) => {
+                const isActive = currentServiceId === service.id;
+                const color = getServiceColor(service.id);
+                const prog = getServiceProgress(service.id);
+                const isComplete = prog.total > 0 && prog.answered === prog.total;
+
+                return (
+                  <TouchableOpacity
+                    key={service.id}
+                    style={[
+                      styles.serviceChip,
+                      isActive && { backgroundColor: color, borderColor: color },
+                      isComplete && !isActive && { borderColor: '#4CAF50' },
+                    ]}
+                    onPress={() => handleSwitchService(service.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.serviceChipText,
+                        isActive && { color: '#FFFFFF' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {service.nom}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.serviceChipCount,
+                        isActive && { color: '#FFFFFF' },
+                        isComplete && !isActive && { color: '#4CAF50' },
+                      ]}
+                    >
+                      {prog.answered}/{prog.total}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
-        {/* Bouton NA */}
-        <NAButton
-          isNA={isNA}
-          onToggleNA={handleToggleNA}
-          raison={raisonNA}
-          onChangeRaison={setRaisonNA}
-          disabled={false}
-        />
-        
-        {/* Photos */}
-        <PhotoCapture
-          photos={photos}
-          onPhotosChange={setPhotos}
-          maxPhotos={3}
-          disabled={isNA}
-        />
-        
-        {/* Commentaire */}
-        <View style={styles.commentContainer}>
-          <Text style={styles.commentLabel}>Commentaire (optionnel) :</Text>
-          <TextInput
-            style={styles.commentInput}
-            placeholder="Ajouter un commentaire..."
-            value={commentaire}
-            onChangeText={setCommentaire}
-            multiline
-            numberOfLines={3}
-            editable={!isNA}
-          />
-        </View>
-        
-        {/* Boutons navigation */}
-        <View style={styles.navigationButtons}>
+        {/* Contenu de la question */}
+        <ScrollView style={styles.scrollView}>
+          <View style={styles.questionContainer}>
+            {/* En-tete */}
+            <View style={styles.questionHeader}>
+              <Text style={styles.questionNumber}>Q{currentQuestion.numero}</Text>
+              {gravite && (
+                <Text style={[
+                  styles.graviteBadge,
+                  {
+                    backgroundColor:
+                      gravite.niveau === 4 ? '#F44336' :
+                      gravite.niveau === 3 ? '#FF9800' :
+                      gravite.niveau === 2 ? '#2196F3' : '#9E9E9E'
+                  }
+                ]}>
+                  {gravite.nom}
+                </Text>
+              )}
+            </View>
+
+            {/* Texte de la question */}
+            <Text style={styles.questionText}>{currentQuestion.texte}</Text>
+
+            {/* Selecteur de note */}
+            {!isNA && (
+              <NoteSelector
+                selectedNote={note}
+                onSelectNote={handleSelectNote}
+                gravite={gravite}
+                disabled={isNA}
+              />
+            )}
+
+            {/* Bouton NA */}
+            <NAButton
+              isNA={isNA}
+              raison={raisonNA}
+              onToggleNA={handleToggleNA}
+              onChangeRaison={setRaisonNA}
+              disabled={note !== null}
+            />
+
+            {/* Deviation detectee */}
+            {deviation && !isNA && (
+              <View style={styles.deviationContainer}>
+                <Text style={styles.deviationTitle}>Deviations detectee</Text>
+                <View style={styles.designationContainer}>
+                  {['AA', 'DMI', 'DMA'].map((d) => (
+                    <TouchableOpacity
+                      key={d}
+                      style={[
+                        styles.designationButton,
+                        designation === d && styles.designationButtonActive,
+                      ]}
+                      onPress={() => setDesignation(d)}
+                    >
+                      <Text style={[
+                        styles.designationText,
+                        designation === d && styles.designationTextActive,
+                      ]}>
+                        {d}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Commentaire */}
+            <TextInput
+              style={styles.commentInput}
+              placeholder="Commentaire (optionnel)..."
+              value={commentaire}
+              onChangeText={setCommentaire}
+              multiline
+              numberOfLines={3}
+            />
+
+            {/* Photos */}
+            <PhotoCapture
+              photos={photos}
+              onPhotosChange={setPhotos}
+              disabled={isNA}
+            />
+          </View>
+        </ScrollView>
+
+        {/* Boutons de navigation */}
+        <View style={styles.navigationContainer}>
           <TouchableOpacity
-            style={[styles.navButton, styles.prevButton]}
+            style={[
+              styles.navButton,
+              styles.prevButton,
+              currentQuestionIndex === 0 && styles.navButtonDisabled,
+            ]}
             onPress={handlePrevious}
             disabled={currentQuestionIndex === 0}
           >
-            <Text style={styles.navButtonText}>← Précédent</Text>
+            <Text style={styles.navButtonText}>Precedent</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
             style={[styles.navButton, styles.nextButton]}
             onPress={handleNext}
           >
             <Text style={[styles.navButtonText, styles.nextButtonText]}>
-              {currentQuestionIndex === questions.length - 1 ? 'Terminer' : 'Suivant →'}
+              {currentQuestionIndex >= filteredQuestions.length - 1 ? 'Terminer ce service' : 'Suivant'}
             </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
     </KeyboardAvoidingView>
   );
-};
-
-// Helper couleur gravité
-const getGraviteColor = (gravite) => {
-  const colors = {
-    1: '#2196F3',
-    2: '#FF9800',
-    3: '#F44336',
-    4: '#9C27B0',
-  };
-  return colors[gravite?.niveau] || '#757575';
 };
 
 const styles = StyleSheet.create({
@@ -498,8 +437,7 @@ const styles = StyleSheet.create({
   },
   progressContainer: {
     backgroundColor: COLORS.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -507,16 +445,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
   },
   backButtonText: {
-    fontSize: 16,
     color: COLORS.primary,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  progressText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
   },
   progressBar: {
     height: 6,
@@ -527,17 +470,11 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     backgroundColor: COLORS.primary,
-    borderRadius: 3,
-  },
-  progressText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
   },
   saveIndicator: {
-    fontSize: 10,
-    color: COLORS.success,
-    textAlign: 'center',
+    fontSize: 11,
+    color: '#4CAF50',
+    textAlign: 'right',
     marginTop: 4,
   },
   serviceBarContainer: {
@@ -551,12 +488,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   serviceChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: COLORS.border,
+    marginRight: 8,
     alignItems: 'center',
     minWidth: 70,
   },
@@ -570,120 +507,74 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  content: {
+  scrollView: {
     flex: 1,
   },
-  scrollContent: {
+  questionContainer: {
     padding: 20,
-    paddingBottom: 40,
-  },
-  questionCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   questionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   questionNumber: {
     fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.primary,
+    marginRight: 12,
   },
   graviteBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  graviteText: {
     fontSize: 12,
-    fontWeight: '600',
     color: '#FFFFFF',
+    fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   questionText: {
     fontSize: 16,
-    lineHeight: 24,
     color: COLORS.text,
-    fontWeight: '500',
-  },
-  instructions: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: COLORS.textSecondary,
-    fontStyle: 'italic',
-    marginTop: 10,
-    padding: 10,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 6,
+    lineHeight: 24,
+    marginBottom: 20,
   },
   deviationContainer: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: '#FFF8E1',
-    borderRadius: 12,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
     borderLeftWidth: 4,
-    borderLeftColor: '#FF9800',
+    borderLeftColor: COLORS.warning,
   },
-  deviationAlert: {
+  deviationTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#E65100',
-    marginBottom: 12,
-  },
-  designationLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.text,
+    color: COLORS.warning,
     marginBottom: 10,
   },
-  designationRow: {
+  designationContainer: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-around',
   },
   designationButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
     borderRadius: 8,
     borderWidth: 2,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    borderColor: COLORS.border,
   },
-  designationButtonSelected: {
-    borderWidth: 2,
+  designationButtonActive: {
+    borderColor: COLORS.warning,
+    backgroundColor: COLORS.warning + '20',
   },
   designationText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  designationTextSelected: {
-    color: '#FFFFFF',
-  },
-  designationDesc: {
-    fontSize: 10,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  commentContainer: {
-    marginVertical: 15,
-  },
-  commentLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 8,
+    color: COLORS.textSecondary,
+  },
+  designationTextActive: {
+    color: COLORS.warning,
   },
   commentInput: {
     backgroundColor: COLORS.surface,
@@ -692,32 +583,37 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-    color: COLORS.text,
     minHeight: 80,
     textAlignVertical: 'top',
+    marginBottom: 15,
   },
-  navigationButtons: {
+  navigationContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 30,
-    marginBottom: 20,
+    padding: 15,
+    backgroundColor: COLORS.surface,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   navButton: {
     flex: 1,
     padding: 15,
     borderRadius: 8,
-    marginHorizontal: 5,
+    alignItems: 'center',
   },
   prevButton: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background,
     borderWidth: 1,
     borderColor: COLORS.border,
+    marginRight: 8,
   },
   nextButton: {
     backgroundColor: COLORS.primary,
+    marginLeft: 8,
+  },
+  navButtonDisabled: {
+    opacity: 0.4,
   },
   navButtonText: {
-    textAlign: 'center',
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
