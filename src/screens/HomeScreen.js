@@ -135,7 +135,7 @@ export default function HomeScreen() {
         {/* Bouton Nouvel Audit */}
         <TouchableOpacity
           style={styles.newAuditButton}
-          onPress={() => navigation.navigate('ServiceSelection')}
+          onPress={() => navigation.navigate('AuditTypeSelection')}
         >
           <View style={styles.newAuditButtonIcon}>
             <Text style={styles.newAuditButtonIconText}>➕</Text>

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import api, { getActionsByAudit } from '../services/api';
+import api, { getActionsByAudit, generateNlpActions, acceptNlpAction, rejectNlpAction } from '../services/api';
 
 export default function AuditDetailScreen() {
     const [audit, setAudit] = useState(null);
@@ -42,6 +42,55 @@ export default function AuditDetailScreen() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleGenerateActions = async () => {
+        try {
+            setLoading(true);
+            await generateNlpActions(auditId);
+            await loadAuditDetails();
+            Alert.alert('Succès', 'Actions correctives générées avec succès');
+        } catch (error) {
+            console.error('Erreur génération actions:', error);
+            Alert.alert('Erreur', 'Impossible de générer les actions');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAcceptAction = async (actionId) => {
+        try {
+            await acceptNlpAction(actionId);
+            await loadAuditDetails();
+            Alert.alert('Succès', 'Action acceptée');
+        } catch (error) {
+            console.error('Erreur acceptation action:', error);
+            Alert.alert('Erreur', 'Impossible d\'accepter l\'action');
+        }
+    };
+
+    const handleRejectAction = async (actionId) => {
+        Alert.alert(
+            'Confirmer le rejet',
+            'Voulez-vous rejeter cette action?',
+            [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                    text: 'Rejeter',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await rejectNlpAction(actionId);
+                            await loadAuditDetails();
+                            Alert.alert('Succès', 'Action rejetée');
+                        } catch (error) {
+                            console.error('Erreur rejet action:', error);
+                            Alert.alert('Erreur', 'Impossible de rejeter l\'action');
+                        }
+                    },
+                },
+            ]
+        );
     };
 
     const getScoreColor = (score) => {
@@ -194,10 +243,18 @@ export default function AuditDetailScreen() {
                 )}
 
                 {/* Actions Correctives NLP */}
-                {actions.length > 0 && (
-                    <View style={styles.section}>
+                <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Actions Correctives (NLP)</Text>
-                        {actions.map((action) => (
+                        <TouchableOpacity
+                            style={styles.generateButton}
+                            onPress={handleGenerateActions}
+                        >
+                            <Text style={styles.generateButtonText}>Générer</Text>
+                        </TouchableOpacity>
+                    </View>
+                    {actions.length > 0 ? (
+                        actions.map((action) => (
                             <View key={action.id} style={styles.actionCard}>
                                 <View style={styles.actionHeader}>
                                     <Text style={[
@@ -222,10 +279,28 @@ export default function AuditDetailScreen() {
                                         {action.designation || '—'}
                                     </Text>
                                 </View>
+                                <View style={styles.actionButtons}>
+                                    <TouchableOpacity
+                                        style={styles.acceptButton}
+                                        onPress={() => handleAcceptAction(action.id)}
+                                    >
+                                        <Text style={styles.acceptButtonText}>Accepter</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.rejectButton}
+                                        onPress={() => handleRejectAction(action.id)}
+                                    >
+                                        <Text style={styles.rejectButtonText}>Rejeter</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        ))}
-                    </View>
-                )}
+                        ))
+                    ) : (
+                        <Text style={styles.noActionsText}>
+                            Aucune action générée. Appuyez sur "Générer" pour créer des actions.
+                        </Text>
+                    )}
+                </View>
 
             </ScrollView>
         </SafeAreaView>
@@ -426,5 +501,60 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '600',
         color: '#2196F3',
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    generateButton: {
+        backgroundColor: '#2196F3',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 6,
+    },
+    generateButtonText: {
+        color: '#FFF',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    noActionsText: {
+        fontSize: 14,
+        color: '#999',
+        textAlign: 'center',
+        paddingVertical: 20,
+    },
+    actionButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#E0E0E0',
+    },
+    acceptButton: {
+        backgroundColor: '#4CAF50',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 6,
+        marginLeft: 8,
+    },
+    acceptButtonText: {
+        color: '#FFF',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    rejectButton: {
+        backgroundColor: '#F44336',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 6,
+        marginLeft: 8,
+    },
+    rejectButtonText: {
+        color: '#FFF',
+        fontSize: 12,
+        fontWeight: '600',
     },
 });

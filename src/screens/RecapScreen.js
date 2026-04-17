@@ -11,25 +11,55 @@ import {
     Alert,
     ActivityIndicator,
     Platform,
+    Modal,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
+import { isWeb } from '../utils/responsive';
 import useAuditStore from '../store/useAuditStore';
-import { createReponse, finalizeAudit } from '../services/api';
+import { createReponse, finalizeAudit, saveAuditResponses, getReponsesByAudit } from '../services/api';
 import { clearDraftReponses } from '../utils/storage';
+
 
 const RecapScreen = ({ navigation }) => {
     const [loading, setLoading] = useState(false);
+    const [saveModalVisible, setSaveModalVisible] = useState(false);
 
     const currentAudit = useAuditStore((state) => state.currentAudit);
     const questions = useAuditStore((state) => state.questions);
     const reponses = useAuditStore((state) => state.reponses);
+    const setAllReponses = useAuditStore((state) => state.setAllReponses);
     const categories = useAuditStore((state) => state.categories);
     const gravites = useAuditStore((state) => state.gravites);
     const reset = useAuditStore((state) => state.reset);
+    
+    // DEBUG: Log des reponses au changement
+    React.useEffect(() => {
+    }, [reponses]);
+
+    // Fetch responses on mount
+    React.useEffect(() => {
+        if (currentAudit) {
+            const fetchReponses = async () => {
+                try {
+                    const data = await getReponsesByAudit(currentAudit.id);
+                    
+                    // NE METTRE À JOUR QUE SI LE STORE EST VIDE
+                    if (data.length > 0 && Object.keys(reponses).length === 0) {
+                        const responseMap = data.reduce((acc, r) => ({ ...acc, [r.question_id]: r }), {});
+                        setAllReponses(responseMap);
+                    }
+                } catch (e) {
+                    console.error("Error fetching responses:", e);
+                }
+            };
+            fetchReponses();
+        }
+    }, [currentAudit]);
 
     // Calculer statistiques
     const totalQuestions = questions.length;
     const reponsesArray = Object.values(reponses);
+    
     const nbReponses = reponsesArray.length;
     const nbNA = reponsesArray.filter((r) => r.is_na).length;
     const nbNotees = nbReponses - nbNA;
@@ -91,48 +121,78 @@ const RecapScreen = ({ navigation }) => {
         submitAudit();
     };
 
+    const saveOnly = async () => {
+        try {
+            const responsesToSave = reponsesArray.map((r) => ({
+                audit_id: currentAudit.id,
+                ...r
+            }));
+            await saveAuditResponses(currentAudit.id, responsesToSave);
+            return true;
+        } catch (e) {
+            console.error('Erreur sauvegarde:', e);
+            Alert.alert('Erreur', 'Impossible de sauvegarder.');
+            return false;
+        }
+    };
+
+    const handleSaveAndExit = async () => {
+        setLoading(true);
+        const success = await saveOnly();
+        setLoading(false);
+        if (success) {
+            setSaveModalVisible(false);
+            navigation.navigate('Home');
+        }
+    };
+
 
     const submitAudit = async () => {
         if (!currentAudit) {
-            if (Platform.OS === 'web') {
-                window.alert('Données de l\'audit introuvables. Veuillez recommencer.');
-            } else {
-                Alert.alert('Erreur', 'Données de l\'audit introuvables. Veuillez recommencer.');
-            }
+            const msg = 'Données de l\'audit introuvables. Veuillez recommencer.';
+            if (Platform.OS === 'web') window.alert(msg);
+            else Alert.alert('Erreur', msg);
             return;
         }
 
         setLoading(true);
 
         try {
-            // 1. Envoyer toutes les réponses au backend
-            for (const reponse of reponsesArray) {
-                await createReponse({
-                    audit_id: currentAudit.id,
-                    ...reponse,
-                });
-            }
+            // 1. Envoyer toutes les réponses en un seul lot (BATCH) au lieu d'une boucle
+            // C'est beaucoup plus robuste et rapide
+            const responsesToSave = reponsesArray.map((r) => ({
+                audit_id: currentAudit.id,
+                question_id: r.question_id,
+                note: r.note,
+                is_na: r.is_na,
+                raison_na: r.raison_na,
+                deviation: r.deviation,
+                designation: r.designation,
+                commentaire: r.commentaire,
+                photos: r.photos || [],
+            }));
 
-            // 2. Finaliser l'audit
+            await saveAuditResponses(currentAudit.id, responsesToSave);
+
+            // 2. Finaliser l'audit (déclenche calculs scores + génération IA)
             await finalizeAudit(currentAudit.id);
 
-            // 3. Clear draft
+            // 3. Nettoyage local
             await clearDraftReponses(currentAudit.id);
-
-            // 4. Reset store
             reset();
 
-            // 5. Confirmation + navigate
+            // 4. Confirmation
             showSuccessAndNavigate(
                 `Score global : ${scoreGlobal.toFixed(1)}%\n${nbReponses} réponses enregistrées`
             );
 
         } catch (error) {
             console.error('Error finalizing audit:', error);
+            const errorMsg = error.response?.data?.detail || 'Impossible de finaliser l\'audit. Vérifiez votre connexion.';
             if (Platform.OS === 'web') {
-                window.alert('Impossible de finaliser l\'audit');
+                window.alert(errorMsg);
             } else {
-                Alert.alert('Erreur', 'Impossible de finaliser l\'audit');
+                Alert.alert('Erreur', errorMsg);
             }
         } finally {
             setLoading(false);
@@ -278,7 +338,15 @@ const RecapScreen = ({ navigation }) => {
                     onPress={() => navigation.goBack()}
                     disabled={loading}
                 >
-                    <Text style={styles.cancelButtonText}>Retour</Text>
+                    <Text style={styles.cancelButtonText} numberOfLines={1} adjustsFontSizeToFit>Retour</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.button, styles.saveButton]}
+                    onPress={() => setSaveModalVisible(true)}
+                    disabled={loading}
+                >
+                    <Text style={styles.saveButtonText} numberOfLines={1} adjustsFontSizeToFit>Sauvegarder</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -289,10 +357,27 @@ const RecapScreen = ({ navigation }) => {
                     {loading ? (
                         <ActivityIndicator color="#fff" />
                     ) : (
-                        <Text style={styles.finalizeButtonText}>✓ Finaliser l'audit</Text>
+                        <Text style={styles.finalizeButtonText} numberOfLines={1} adjustsFontSizeToFit>✓ Finaliser</Text>
                     )}
                 </TouchableOpacity>
             </View>
+            <Modal visible={saveModalVisible} transparent={true} animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Sauvegarde</Text>
+                        <Text style={styles.modalText}>Que voulez-vous faire ?</Text>
+                        <TouchableOpacity style={styles.modalButton} onPress={handleSaveAndExit}>
+                            <Text style={styles.modalButtonText}>Sauvegarder et quitter</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.modalButton, {backgroundColor: COLORS.primary}]} onPress={async () => { await saveOnly(); setSaveModalVisible(false); }}>
+                            <Text style={[styles.modalButtonText, {color: '#FFFFFF'}]}>Sauvegarder et rester</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.modalButton, {backgroundColor: COLORS.background}]} onPress={() => setSaveModalVisible(false)}>
+                            <Text style={styles.modalButtonText}>Annuler</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 };
@@ -304,7 +389,45 @@ const styles = StyleSheet.create({
     },
     content: {
         flex: 1,
+        padding: 20,
+        ...(isWeb && {
+            maxWidth: 800,
+            alignSelf: 'center',
+            width: '100%',
+        }),
     },
+    footer: {
+        flexDirection: 'row',
+        padding: 15,
+        backgroundColor: COLORS.surface,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        ...(isWeb && {
+            maxWidth: 800,
+            alignSelf: 'center',
+            width: '100%',
+            borderRadius: 12,
+            marginBottom: 20,
+            borderTopWidth: 0,
+        }),
+    },
+
+    footer: {
+        flexDirection: 'row',
+        padding: 15,
+        backgroundColor: COLORS.surface,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        ...(isWeb && {
+            maxWidth: 800,
+            alignSelf: 'center',
+            width: '100%',
+            borderRadius: 12,
+            marginBottom: 20,
+            borderTopWidth: 0,
+        }),
+    },
+
     scoreCard: {
         backgroundColor: COLORS.primary,
         padding: 30,
@@ -493,15 +616,19 @@ const styles = StyleSheet.create({
     },
     button: {
         flex: 1,
-        padding: 15,
+        padding: 10,
         borderRadius: 8,
-        marginHorizontal: 5,
+        marginHorizontal: 4,
         alignItems: 'center',
+        justifyContent: 'center',
     },
     cancelButton: {
         backgroundColor: COLORS.background,
         borderWidth: 1,
         borderColor: COLORS.border,
+    },
+    saveButton: {
+        backgroundColor: '#FFEB3B',
     },
     finalizeButton: {
         backgroundColor: COLORS.success,
@@ -510,14 +637,64 @@ const styles = StyleSheet.create({
         opacity: 0.5,
     },
     cancelButtonText: {
-        fontSize: 16,
+        fontSize: 13,
+        fontWeight: '600',
+        color: COLORS.text,
+    },
+    saveButtonText: {
+        fontSize: 13,
         fontWeight: '600',
         color: COLORS.text,
     },
     finalizeButtonText: {
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: '600',
         color: '#FFFFFF',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        ...(isWeb && {
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+        }),
+    },
+    modalContent: {
+        backgroundColor: '#fff',
+        padding: 20,
+        borderRadius: 12,
+        width: '80%',
+        maxWidth: 400,
+        alignItems: 'center',
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 10,
+    },
+    modalText: {
+        fontSize: 14,
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    modalButton: {
+        padding: 12,
+        width: '100%',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        marginBottom: 10,
+        alignItems: 'center',
+    },
+    modalButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: COLORS.text,
     },
 });
 

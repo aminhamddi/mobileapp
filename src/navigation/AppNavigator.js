@@ -6,6 +6,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ServiceSelectionScreen from '../screens/ServiceSelectionScreen';
+import AuditTypeSelectionScreen from '../screens/AuditTypeSelectionScreen';
 import QuestionScreen from '../screens/QuestionScreen';
 import RecapScreen from '../screens/RecapScreen';
 
@@ -40,6 +41,16 @@ export default function AppNavigator() {
         />
 
         {/* Flow Audit */}
+        <Stack.Screen 
+          name="AuditTypeSelection" 
+          component={AuditTypeSelectionScreen}
+          options={{ 
+            headerShown: true,
+            title: 'Type d\'Audit',
+            headerBackTitle: 'Retour',
+          }}
+        />
+
         <Stack.Screen 
           name="ServiceSelection" 
           component={ServiceSelectionScreen}

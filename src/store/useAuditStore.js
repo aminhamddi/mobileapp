@@ -7,6 +7,7 @@ const useAuditStore = create((set, get) => ({
     // State
     user: null,
     currentAudit: null,
+    currentProjectId: null, // Ajout du projet
     questions: [],
     categories: [],
     gravites: [],
@@ -19,8 +20,9 @@ const useAuditStore = create((set, get) => ({
 
     // Actions
     setUser: (user) => set({ user }),
-    logout: () => set({ user: null, currentAudit: null, reponses: {}, currentQuestionIndex: 0, currentServiceId: null, filteredQuestions: [] }),
+    logout: () => set({ user: null, currentAudit: null, currentProjectId: null, reponses: {}, currentQuestionIndex: 0, currentServiceId: null, filteredQuestions: [] }),
     setCurrentAudit: (audit) => set({ currentAudit: audit }),
+    setCurrentProjectId: (projectId) => set({ currentProjectId: projectId }),
 
     setQuestions: (questions) => set({ questions }),
     setCategories: (categories) => set({ categories }),
@@ -45,6 +47,8 @@ const useAuditStore = create((set, get) => ({
             [questionId]: reponse,
         },
     })),
+
+    setAllReponses: (reponses) => set({ reponses }),
 
     nextQuestion: () => set((state) => ({
         currentQuestionIndex: Math.min(
@@ -94,6 +98,7 @@ const useAuditStore = create((set, get) => ({
 
     reset: () => set({
         currentAudit: null,
+        currentProjectId: null,
         reponses: {},
         currentQuestionIndex: 0,
         currentServiceId: null,

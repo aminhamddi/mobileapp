@@ -95,6 +95,11 @@ export const getAudit = async (auditId) => {
     return response.data;
 };
 
+export const saveAuditResponses = async (auditId, responses) => {
+    const response = await api.put(`/api/audits/${auditId}/responses`, { responses });
+    return response.data;
+};
+
 export const finalizeAudit = async (auditId) => {
     const response = await api.patch(`/api/audits/${auditId}/finalize`);
     return response.data;
@@ -176,6 +181,11 @@ export const getServices = async () => {
     return response.data;
 };
 
+export const getProjects = async () => {
+    const response = await api.get('/api/projects');
+    return response.data;
+};
+
 export const getServicesWithQuestions = async () => {
     const response = await api.get('/api/services/with-questions');
     return response.data;
@@ -184,6 +194,31 @@ export const getServicesWithQuestions = async () => {
 // ===== NLP / ACTIONS =====
 export const getActionsByAudit = async (auditId) => {
     const response = await api.get(`/api/nlp/actions/${auditId}`);
+    return response.data;
+};
+
+export const generateNlpActions = async (auditId) => {
+    const response = await api.post(`/api/nlp/generate-actions/${auditId}`);
+    return response.data;
+};
+
+export const getActionsByType = async (auditId) => {
+    const response = await api.get(`/api/nlp/actions/${auditId}/by-type`);
+    return response.data;
+};
+
+export const acceptNlpAction = async (actionId) => {
+    const response = await api.patch(`/api/nlp/actions/${actionId}/accept`);
+    return response.data;
+};
+
+export const rejectNlpAction = async (actionId) => {
+    const response = await api.delete(`/api/nlp/actions/${actionId}`);
+    return response.data;
+};
+
+export const analyzeComment = async (text) => {
+    const response = await api.post('/api/nlp/analyze-comment', { text });
     return response.data;
 };
 

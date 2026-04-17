@@ -12,6 +12,7 @@ import {
     Alert,
 } from 'react-native';
 import { COLORS } from '../constants/colors';
+import { isWeb } from '../utils/responsive';
 import { createAudit, getServicesWithQuestions } from '../services/api';
 import useAuditStore from '../store/useAuditStore';
 
@@ -21,6 +22,7 @@ const ServiceSelectionScreen = ({ navigation }) => {
 
     const user = useAuditStore((state) => state.user);
     const currentAudit = useAuditStore((state) => state.currentAudit);
+    const currentProjectId = useAuditStore((state) => state.currentProjectId); // Ajout
     const setCurrentAudit = useAuditStore((state) => state.setCurrentAudit);
     const setService = useAuditStore((state) => state.setService);
     const getServiceProgress = useAuditStore((state) => state.getServiceProgress);
@@ -50,6 +52,7 @@ const ServiceSelectionScreen = ({ navigation }) => {
             if (!currentAudit) {
                 const auditData = {
                     plant_id: user?.plant_id || 1,
+                    project_id: currentProjectId, // Utiliser le project ID du store
                     service_id: service.id,
                     date_audit: new Date().toISOString().split('T')[0],
                     heure_debut: new Date().toTimeString().split(' ')[0],
@@ -171,6 +174,20 @@ const styles = StyleSheet.create({
     },
     content: {
         padding: 20,
+        ...(isWeb && {
+            maxWidth: 800,
+            alignSelf: 'center',
+            width: '100%',
+            backgroundColor: COLORS.surface,
+            borderRadius: 12,
+            marginTop: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 8,
+            elevation: 4,
+            minHeight: 500,
+        }),
     },
     loadingContainer: {
         flex: 1,

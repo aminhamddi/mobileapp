@@ -13,15 +13,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  Keyboard,
+  Modal,
 } from 'react-native';
+import { isWeb } from '../utils/responsive';
 import { COLORS } from '../constants/colors';
 import useAuditStore from '../store/useAuditStore';
 import NoteSelector from '../components/NoteSelector';
 import NAButton from '../components/NAButton';
 import PhotoCapture from '../components/PhotoCapture';
 import { saveDraftReponses } from '../utils/storage';
-import { createReponse } from '../services/api';
-import { getServicesWithQuestions } from '../services/api';
+import { saveAuditResponses, getServicesWithQuestions } from '../services/api';
 
 const QuestionScreen = ({ navigation }) => {
   const currentQuestion = useAuditStore((state) => state.getCurrentQuestion());
@@ -48,10 +50,18 @@ const QuestionScreen = ({ navigation }) => {
   const [deviation, setDeviation] = useState(false);
   const [designation, setDesignation] = useState(null);
   const [lastSaveTime, setLastSaveTime] = useState(null);
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
 
   // Charger services pour la barre de navigation
   useEffect(() => {
     loadServices();
+    if (isWeb) {
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter') handleNext();
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
   }, []);
 
   const loadServices = async () => {
@@ -95,18 +105,19 @@ const QuestionScreen = ({ navigation }) => {
       if (Object.keys(reponses).length > 0 && currentAudit) {
         // Save to local storage
         await saveDraftReponses(currentAudit.id, reponses);
-        // Save to API (server backup)
-        for (const [questionId, reponseData] of Object.entries(reponses)) {
-          try {
-            await createReponse({
-              audit_id: currentAudit.id,
-              ...reponseData,
-            });
-          } catch (e) {
-            // Ignore errors (duplicate/overwrite is OK)
-          }
+        
+        // Save to API (server backup - BATCH)
+        try {
+            const responsesToSave = Object.entries(reponses).map(([qId, r]) => ({
+                audit_id: currentAudit.id,
+                question_id: parseInt(qId),
+                ...r
+            }));
+            await saveAuditResponses(currentAudit.id, responsesToSave);
+            setLastSaveTime(new Date());
+        } catch (e) {
+            console.error('Erreur auto-save:', e);
         }
-        setLastSaveTime(new Date());
       }
     }, 30000);
 
@@ -145,7 +156,8 @@ const QuestionScreen = ({ navigation }) => {
 
   // Sauvegarder la reponse courante
   const saveCurrentReponse = () => {
-    if (note !== null || isNA) {
+    // Permettre la sauvegarde même sans note si commentaire ou photos existent
+    if (note !== null || isNA || (commentaire && commentaire.trim().length > 0) || (photos && photos.length > 0)) {
       setReponse(currentQuestion.id, {
         question_id: currentQuestion.id,
         note: isNA ? null : note,
@@ -158,9 +170,10 @@ const QuestionScreen = ({ navigation }) => {
       });
     }
   };
-
-  // Handlers
+  
   const handleSelectNote = (selectedNote) => {
+
+
     setNote(selectedNote);
     setIsNA(false);
     setRaisonNA('');
@@ -172,6 +185,38 @@ const QuestionScreen = ({ navigation }) => {
       setDesignation(suggestDesignation(selectedNote, gravite));
     } else {
       setDesignation(null);
+    }
+  };
+
+  const saveOnly = async () => {
+    saveCurrentReponse();
+    const currentReponses = useAuditStore.getState().reponses;
+    const currentAudit = useAuditStore.getState().currentAudit;
+    
+    if (Object.keys(currentReponses).length > 0 && currentAudit) {
+        try {
+            const responsesToSave = Object.entries(currentReponses).map(([qId, r]) => ({
+                audit_id: currentAudit.id,
+                question_id: parseInt(qId),
+                ...r
+            }));
+            await saveAuditResponses(currentAudit.id, responsesToSave);
+            setLastSaveTime(new Date());
+            return true;
+        } catch (e) {
+            console.error('Erreur sauvegarde:', e);
+            Alert.alert('Erreur', 'Impossible de sauvegarder.');
+            return false;
+        }
+    }
+    return true;
+  };
+
+  const handleSaveAndExit = async () => {
+    const success = await saveOnly();
+    if (success) {
+        setSaveModalVisible(false);
+        navigation.navigate('Home');
     }
   };
 
@@ -413,28 +458,88 @@ const QuestionScreen = ({ navigation }) => {
             onPress={handlePrevious}
             disabled={currentQuestionIndex === 0}
           >
-            <Text style={styles.navButtonText}>Precedent</Text>
+            <Text style={styles.navButtonText} numberOfLines={1} adjustsFontSizeToFit>Precedent</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.navButton, styles.saveButton]}
+            onPress={() => setSaveModalVisible(true)}
+          >
+            <Text style={styles.navButtonText} numberOfLines={1} adjustsFontSizeToFit>Sauvegarder</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.navButton, styles.nextButton]}
             onPress={handleNext}
           >
-            <Text style={[styles.navButtonText, styles.nextButtonText]}>
-              {currentQuestionIndex >= filteredQuestions.length - 1 ? 'Terminer ce service' : 'Suivant'}
+            <Text style={[styles.navButtonText, styles.nextButtonText]} numberOfLines={1} adjustsFontSizeToFit>
+              {currentQuestionIndex >= filteredQuestions.length - 1 ? 'Terminer' : 'Suivant'}
             </Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+        <Modal visible={saveModalVisible} transparent={true} animationType="fade">
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>Sauvegarde</Text>
+                    <Text style={styles.modalText}>Que voulez-vous faire ?</Text>
+                    <TouchableOpacity style={styles.modalButton} onPress={handleSaveAndExit}>
+                        <Text style={styles.modalButtonText}>Sauvegarder et quitter</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalButton, {backgroundColor: COLORS.primary}]} onPress={async () => { await saveOnly(); setSaveModalVisible(false); }}>
+                        <Text style={[styles.modalButtonText, {color: '#FFFFFF'}]}>Sauvegarder et rester</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalButton, {backgroundColor: COLORS.background}]} onPress={() => setSaveModalVisible(false)}>
+                        <Text style={styles.modalButtonText}>Annuler</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </Modal>
     </KeyboardAvoidingView>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+    ...(isWeb && {
+      paddingHorizontal: 20,
+    }),
   },
+  progressContainer: {
+    backgroundColor: COLORS.surface,
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    ...(isWeb && {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      marginTop: 20,
+      maxWidth: 800,
+      alignSelf: 'center',
+      width: '100%',
+    }),
+  },
+  questionContainer: {
+    padding: 20,
+    ...(isWeb && {
+      maxWidth: 800,
+      alignSelf: 'center',
+      width: '100%',
+      backgroundColor: COLORS.surface,
+      borderRadius: 12,
+      marginTop: 20,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 4,
+    }),
+  },
+
   progressContainer: {
     backgroundColor: COLORS.surface,
     padding: 12,
@@ -596,30 +701,80 @@ const styles = StyleSheet.create({
   },
   navButton: {
     flex: 1,
-    padding: 15,
+    padding: 10,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   prevButton: {
     backgroundColor: COLORS.background,
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginRight: 8,
+    marginRight: 4,
+  },
+  saveButton: {
+    backgroundColor: '#FFEB3B',
+    marginHorizontal: 4,
   },
   nextButton: {
     backgroundColor: COLORS.primary,
-    marginLeft: 8,
+    marginLeft: 4,
   },
   navButtonDisabled: {
     opacity: 0.4,
   },
   navButtonText: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.text,
   },
   nextButtonText: {
     color: '#FFFFFF',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(isWeb && {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+    }),
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    width: '80%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 14,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalButton: {
+    padding: 12,
+    width: '100%',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
   },
 });
 

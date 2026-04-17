@@ -33,7 +33,7 @@ if (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_API
 export { API_URL };
 
 export const CONFIG = {
-    API_TIMEOUT: 30000,
+    API_TIMEOUT: 60000,
     AUTO_SAVE_INTERVAL: 30000,
     MAX_PHOTOS_PER_QUESTION: 3,
     PHOTO_QUALITY: 0.7,
